@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>이로운 주문관리</title>
+<style>
+:root{--primary:#315c4a;--primary2:#447b63;--bg:#f5f7f5;--card:#fff;--text:#26332d;--muted:#78827d;--line:#e4e9e5;--danger:#d9534f;--warning:#c98b16;--blue:#3f6fa8}
+*{box-sizing:border-box} body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Noto Sans KR",Arial,sans-serif;background:var(--bg);color:var(--text)}
+button,input,select,textarea{font:inherit} button{cursor:pointer;border:0}
+.app{display:flex;min-height:100vh}.side{width:230px;background:#fff;border-right:1px solid var(--line);padding:24px 16px;position:fixed;height:100vh}
+.logo{font-size:21px;font-weight:800;color:var(--primary);padding:8px 12px 28px}.logo small{display:block;font-size:11px;color:var(--muted);font-weight:500;margin-top:4px}
+.nav button{display:block;width:100%;text-align:left;background:transparent;padding:13px 14px;border-radius:10px;color:#58645e;margin:4px 0}
+.nav button.active,.nav button:hover{background:#edf4ef;color:var(--primary);font-weight:700}
+.main{margin-left:230px;width:calc(100% - 230px);padding:28px 34px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:26px}.top h1{margin:0;font-size:27px}.top p{margin:6px 0 0;color:var(--muted);font-size:14px}
+.btn{padding:11px 17px;border-radius:9px;font-weight:700}.btn.primary{background:var(--primary);color:#fff}.btn.secondary{background:#edf2ee;color:var(--primary)}
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}.stat{background:#fff;border:1px solid var(--line);border-radius:14px;padding:20px}.stat .label{color:var(--muted);font-size:13px}.stat .num{font-size:29px;font-weight:800;margin-top:10px}.stat .sub{font-size:12px;color:var(--muted);margin-top:5px}
+.panel{background:#fff;border:1px solid var(--line);border-radius:14px;padding:20px;margin-top:18px}.panel h2{font-size:17px;margin:0 0 15px}.row{display:flex;gap:12px;align-items:center}.between{display:flex;justify-content:space-between;align-items:center}
+table{width:100%;border-collapse:collapse;font-size:14px}th,td{padding:12px 10px;border-bottom:1px solid var(--line);text-align:left}th{background:#fafbfa;color:#66716b;font-size:12px}td.num{text-align:right}.badge{display:inline-block;padding:5px 9px;border-radius:20px;font-size:11px;font-weight:700}.green{background:#e8f4ed;color:#28704b}.red{background:#fbeaea;color:#b83e3a}.yellow{background:#fff4da;color:#9b6b0b}
+.hidden{display:none!important}.searchbar{display:flex;gap:10px;margin-bottom:14px}.searchbar input,.searchbar select{border:1px solid var(--line);padding:10px 12px;border-radius:8px;background:#fff}
+.formgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.field label{display:block;font-size:12px;font-weight:700;color:#68736d;margin-bottom:6px}.field input,.field select,.field textarea{width:100%;border:1px solid #dce3de;border-radius:8px;padding:11px;background:#fff}.field textarea{min-height:80px;resize:vertical}.kitbox{border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:6px}.kitrow{display:grid;grid-template-columns:1fr 120px;align-items:center;padding:8px 0;border-bottom:1px solid #f0f2f0}.kitrow:last-child{border-bottom:0}.kitrow input{text-align:right}
+.modal{position:fixed;inset:0;background:rgba(20,30,25,.42);display:flex;align-items:center;justify-content:center;padding:20px;z-index:5}.modalbox{background:#fff;width:min(700px,100%);max-height:90vh;overflow:auto;border-radius:16px;padding:24px}.modalhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}.close{background:#f1f3f1;width:34px;height:34px;border-radius:50%}
+.calendar{display:grid;grid-template-columns:repeat(7,1fr);border:1px solid var(--line);border-radius:10px;overflow:hidden}.calhead{padding:10px;background:#fafbfa;color:var(--muted);font-size:12px;font-weight:700}.day{min-height:105px;background:#fff;border-top:1px solid var(--line);border-right:1px solid var(--line);padding:8px}.day:nth-child(7n){border-right:0}.date{font-size:12px;font-weight:700}.event{background:#edf4ef;color:#315c4a;padding:5px 6px;border-radius:6px;margin-top:5px;font-size:10px;line-height:1.35}
+.monthnav{display:flex;align-items:center;gap:10px}.monthnav button{background:#eef2ef;border-radius:8px;padding:7px 11px}.monthnav strong{min-width:120px;text-align:center}
+.empty{text-align:center;color:var(--muted);padding:28px}.notice{padding:12px 14px;border-radius:9px;background:#f8faf8;color:#657069;font-size:13px;margin-bottom:14px}
+@media(max-width:850px){.side{width:72px;padding:15px 8px}.logo{font-size:0;text-align:center;padding:8px 0 22px}.logo:before{content:"이";font-size:22px}.logo small{display:none}.nav button{font-size:0;text-align:center;padding:13px 4px}.nav button:before{font-size:18px}.nav button:nth-child(1):before{content:"⌂"}.nav button:nth-child(2):before{content:"＋"}.nav button:nth-child(3):before{content:"≡"}.nav button:nth-child(4):before{content:"▦"}.nav button:nth-child(5):before{content:"◈"}.nav button:nth-child(6):before{content:"⚙"}.main{margin-left:72px;width:calc(100% - 72px);padding:20px 14px}.grid4{grid-template-columns:repeat(2,1fr)}.formgrid{grid-template-columns:1fr}.calendar{font-size:10px}.day{min-height:82px;padding:5px}.event{font-size:9px}}
+</style>
+</head>
+<body>
+<div class="app">
+<aside class="side">
+  <div class="logo">이로운 주문관리<small>주문 · 발송 · 준비관리</small></div>
+  <nav class="nav">
+    <button class="active" onclick="showPage('dashboard',this)">대시보드</button>
+    <button onclick="showPage('order',this)">주문등록</button>
+    <button onclick="showPage('orders',this)">주문현황</button>
+    <button onclick="showPage('calendar',this)">발송캘린더</button>
+    <button onclick="showPage('kits',this)">키트별현황</button>
+    <button onclick="showPage('settings',this)">설정</button>
+  </nav>
+</aside>
+<main class="main">
+  <section id="dashboard" class="page">
+    <div class="top"><div><h1>안녕하세요, 이로운과자점 👋</h1><p id="todayText"></p></div><button class="btn primary" onclick="openOrder()">＋ 새 주문</button></div>
+    <div class="grid4">
+      <div class="stat"><div class="label">오늘 발송</div><div class="num" id="sToday">0건</div><div class="sub">오늘 발송 예정 주문</div></div>
+      <div class="stat"><div class="label">내일 발송</div><div class="num" id="sTomorrow">0건</div><div class="sub">내일 발송 예정 주문</div></div>
+      <div class="stat"><div class="label">준비 필요</div><div class="num" id="sPrepare">0건</div><div class="sub">재고보다 주문량이 많은 키트</div></div>
+      <div class="stat"><div class="label">발주 필요</div><div class="num" id="sNeed">0종</div><div class="sub">추가 준비가 필요한 키트</div></div>
+    </div>
+    <div class="panel"><div class="between"><h2>다가오는 발송</h2><button class="btn secondary" onclick="showPage('calendar')">캘린더 보기</button></div><div id="upcoming"></div></div>
+  </section>
+
+  <section id="order" class="page hidden">
+    <div class="top"><div><h1>새 주문 등록</h1><p>필요한 정보만 입력하면 주문번호가 자동으로 생성됩니다.</p></div></div>
+    <div class="panel">
+      <div class="notice">주문번호는 자동 생성됩니다. 한 주문에 여러 키트를 함께 입력할 수 있습니다.</div>
+      <div class="formgrid">
+        <div class="field"><label>주문번호</label><input id="orderNo" readonly></div>
+        <div class="field"><label>발송일 *</label><input type="date" id="shipDate"></div>
+        <div class="field" style="grid-column:1/-1"><label>배송지 *</label><input id="address" placeholder="예: 광주광역시 서구 ○○로 00"></div>
+      </div>
+      <div class="field" style="margin-top:16px"><label>키트별 수량</label><div class="kitbox" id="kitInputs"></div></div>
+      <div class="field" style="margin-top:16px"><label>요청사항 (선택)</label><textarea id="note" placeholder="배송 또는 주문 관련 요청사항"></textarea></div>
+      <div class="row" style="justify-content:flex-end;margin-top:18px"><button class="btn secondary" onclick="showPage('dashboard')">취소</button><button class="btn primary" onclick="saveOrder()">주문 저장</button></div>
+    </div>
+  </section>
+
+  <section id="orders" class="page hidden">
+    <div class="top"><div><h1>주문현황</h1><p>등록된 주문을 검색하고 확인합니다.</p></div><button class="btn primary" onclick="openOrder()">＋ 새 주문</button></div>
+    <div class="panel">
+      <div class="searchbar"><input id="search" placeholder="주문번호 또는 배송지 검색" oninput="renderOrders()"><input type="date" id="filterDate" onchange="renderOrders()"></div>
+      <div id="ordersTable"></div>
+    </div>
+  </section>
+
+  <section id="calendar" class="page hidden">
+    <div class="top"><div><h1>발송 캘린더</h1><p>날짜별 발송 주문을 한눈에 확인합니다.</p></div><div class="monthnav"><button onclick="moveMonth(-1)">‹</button><strong id="monthTitle"></strong><button onclick="moveMonth(1)">›</button></div></div>
+    <div class="panel"><div id="calendarGrid"></div></div>
+  </section>
+
+  <section id="kits" class="page hidden">
+    <div class="top"><div><h1>키트별 현황</h1><p>전체 주문량과 현재 재고를 비교합니다.</p></div></div>
+    <div class="panel"><div id="kitTable"></div></div>
+  </section>
+
+  <section id="settings" class="page hidden">
+    <div class="top"><div><h1>설정</h1><p>1차 버전에서는 키트와 현재 재고를 간단히 관리합니다.</p></div></div>
+    <div class="panel">
+      <h2>현재 재고</h2>
+      <div class="notice">실제 생산/출고 재고와 자동 연동하지 않는 1차 테스트 버전입니다. 아래 재고를 직접 수정할 수 있습니다.</div>
+      <div id="stockInputs"></div>
+      <div style="text-align:right;margin-top:16px"><button class="btn primary" onclick="saveStock()">재고 저장</button></div>
+    </div>
+  </section>
+</main>
+</div>
+
+<div id="modal" class="modal hidden"><div class="modalbox"><div class="modalhead"><h2 id="modalTitle">주문 상세</h2><button class="close" onclick="closeModal()">×</button></div><div id="modalBody"></div></div></div>
+
+<script>
+const kits=["과자집","감자샐러드샌드위치","초코스틱","튀밥강정","화과자","경단","글자생과자","캐릭터생과자","뻥스케이크","식빵카나페","도넛","표정컵케이크"];
+let orders=JSON.parse(localStorage.getItem("iroonOrders")||"[]");
+let stock=JSON.parse(localStorage.getItem("iroonStock")||"{}");
+kits.forEach(k=>{if(stock[k]===undefined)stock[k]=0});
+let calDate=new Date();
+
+function todayStr(d=new Date()){return d.toISOString().slice(0,10)}
+function nextOrderNo(){let nums=orders.map(o=>parseInt(o.no,10)).filter(n=>!isNaN(n));let base=parseInt(String(new Date().getFullYear()).slice(2)+"0001");let n=Math.max(base,...nums)+1;return String(n)}
+function openOrder(){showPage("order");document.getElementById("orderNo").value=nextOrderNo();document.getElementById("shipDate").value=todayStr(new Date(Date.now()+86400000));document.getElementById("address").value="";document.getElementById("note").value="";document.querySelectorAll("#kitInputs input").forEach(i=>i.value="")}
+function initKitInputs(){document.getElementById("kitInputs").innerHTML=kits.map(k=>`<div class="kitrow"><span>${k}</span><input type="number" min="0" value="0" data-kit="${k}"></div>`).join("")}
+function saveOrder(){
+ let no=document.getElementById("orderNo").value,address=document.getElementById("address").value.trim(),shipDate=document.getElementById("shipDate").value;
+ if(!address||!shipDate){alert("배송지와 발송일을 입력해주세요.");return}
+ let items={};document.querySelectorAll("#kitInputs input").forEach(i=>{let q=Number(i.value)||0;if(q>0)items[i.dataset.kit]=q});
+ if(!Object.keys(items).length){alert("키트 수량을 하나 이상 입력해주세요.");return}
+ orders.push({no,address,shipDate,items,note:document.getElementById("note").value.trim(),created:new Date().toISOString()});
+ localStorage.setItem("iroonOrders",JSON.stringify(orders));alert(`${no} 주문이 등록되었습니다.`);showPage("orders");refresh();
+}
+function showPage(id,btn){
+ document.querySelectorAll(".page").forEach(p=>p.classList.add("hidden"));document.getElementById(id).classList.remove("hidden");
+ if(btn){document.querySelectorAll(".nav button").forEach(b=>b.classList.remove("active"));btn.classList.add("active")}
+ else{let b=[...document.querySelectorAll(".nav button")].find(x=>x.textContent.includes({dashboard:"대시보드",order:"주문등록",orders:"주문현황",calendar:"발송캘린더",kits:"키트별현황",settings:"설정"}[id]));if(b){document.querySelectorAll(".nav button").forEach(x=>x.classList.remove("active"));b.classList.add("active")}}
+ if(id==="orders")renderOrders();if(id==="calendar")renderCalendar();if(id==="kits")renderKits();if(id==="settings")renderStock();
+}
+function renderOrders(){
+ let q=(document.getElementById("search")?.value||"").toLowerCase(),fd=document.getElementById("filterDate")?.value||"";
+ let arr=orders.filter(o=>(!q||o.no.toLowerCase().includes(q)||o.address.toLowerCase().includes(q))&&(!fd||o.shipDate===fd)).sort((a,b)=>a.shipDate.localeCompare(b.shipDate));
+ if(!arr.length){document.getElementById("ordersTable").innerHTML='<div class="empty">등록된 주문이 없습니다.</div>';return}
+ document.getElementById("ordersTable").innerHTML=`<table><thead><tr><th>주문번호</th><th>배송지</th><th>발송일</th><th>키트</th><th>수량</th><th>상태</th></tr></thead><tbody>${arr.map(o=>{let total=Object.values(o.items).reduce((a,b)=>a+b,0);return `<tr onclick="detail('${o.no}')" style="cursor:pointer"><td><b>${o.no}</b></td><td>${o.address}</td><td>${o.shipDate}</td><td>${Object.keys(o.items).slice(0,2).join(", ")}${Object.keys(o.items).length>2?" 외":""}</td><td>${total}개</td><td><span class="badge green">발송예정</span></td></tr>`}).join("")}</tbody></table>`;
+}
+function detail(no){let o=orders.find(x=>x.no===no);document.getElementById("modalTitle").textContent=`주문 ${o.no}`;document.getElementById("modalBody").innerHTML=`<p><b>배송지</b><br>${o.address}</p><p><b>발송일</b><br>${o.shipDate}</p><p><b>키트</b></p><table><tbody>${Object.entries(o.items).map(([k,v])=>`<tr><td>${k}</td><td class="num">${v}개</td></tr>`).join("")}</tbody></table>${o.note?`<p><b>요청사항</b><br>${o.note}</p>`:""}<div style="text-align:right;margin-top:18px"><button class="btn secondary" onclick="closeModal()">닫기</button></div>`;document.getElementById("modal").classList.remove("hidden")}
+function closeModal(){document.getElementById("modal").classList.add("hidden")}
+function renderCalendar(){
+ let y=calDate.getFullYear(),m=calDate.getMonth();document.getElementById("monthTitle").textContent=`${y}년 ${m+1}월`;
+ let first=new Date(y,m,1),start=first.getDay(),days=new Date(y,m+1,0).getDate(),html='<div class="calendar">';
+ ["일","월","화","수","목","금","토"].forEach(x=>html+=`<div class="calhead">${x}</div>`);
+ for(let i=0;i<start;i++)html+='<div class="day"></div>';
+ for(let d=1;d<=days;d++){let ds=`${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`,os=orders.filter(o=>o.shipDate===ds);html+=`<div class="day"><div class="date">${d}</div>${os.map(o=>`<div class="event" onclick="detail('${o.no}')"><b>${o.no}</b><br>${Object.entries(o.items).map(([k,v])=>`${k} ${v}`).join("<br>")}</div>`).join("")}</div>`}
+ html+='</div>';document.getElementById("calendarGrid").innerHTML=html
+}
+function moveMonth(n){calDate.setMonth(calDate.getMonth()+n);renderCalendar()}
+function renderKits(){
+ let totals={};kits.forEach(k=>totals[k]=0);orders.forEach(o=>Object.entries(o.items).forEach(([k,v])=>totals[k]+=v));
+ document.getElementById("kitTable").innerHTML=`<table><thead><tr><th>키트</th><th>주문량</th><th>현재재고</th><th>필요량</th><th>상태</th></tr></thead><tbody>${kits.map(k=>{let need=Math.max(0,totals[k]-Number(stock[k]||0));return `<tr><td><b>${k}</b></td><td class="num">${totals[k]}개</td><td class="num">${stock[k]}개</td><td class="num"><b>${need}개</b></td><td>${need>0?'<span class="badge red">준비 필요</span>':'<span class="badge green">충족</span>'}</td></tr>`}).join("")}</tbody></table>`
+}
+function renderStock(){document.getElementById("stockInputs").innerHTML=`<table><thead><tr><th>키트</th><th>현재 재고</th></tr></thead><tbody>${kits.map(k=>`<tr><td>${k}</td><td><input style="width:130px;padding:8px;border:1px solid #dce3de;border-radius:7px;text-align:right" type="number" min="0" data-stock="${k}" value="${stock[k]}"></td></tr>`).join("")}</tbody></table>`}
+function saveStock(){document.querySelectorAll("[data-stock]").forEach(i=>stock[i.dataset.stock]=Number(i.value)||0);localStorage.setItem("iroonStock",JSON.stringify(stock));alert("현재 재고가 저장되었습니다.");refresh()}
+function refresh(){
+ let t=todayStr(),tom=todayStr(new Date(Date.now()+86400000));document.getElementById("sToday").textContent=orders.filter(o=>o.shipDate===t).length+"건";document.getElementById("sTomorrow").textContent=orders.filter(o=>o.shipDate===tom).length+"건";
+ let totals={};kits.forEach(k=>totals[k]=0);orders.forEach(o=>Object.entries(o.items).forEach(([k,v])=>totals[k]+=v));let need=kits.filter(k=>totals[k]>Number(stock[k]||0)&&totals[k]>0).length;document.getElementById("sPrepare").textContent=need+"건";document.getElementById("sNeed").textContent=need+"종";
+ let upcoming=orders.filter(o=>o.shipDate>=t).sort((a,b)=>a.shipDate.localeCompare(b.shipDate)).slice(0,8);document.getElementById("upcoming").innerHTML=upcoming.length?`<table><thead><tr><th>발송일</th><th>주문번호</th><th>배송지</th><th>내용</th></tr></thead><tbody>${upcoming.map(o=>`<tr onclick="detail('${o.no}')" style="cursor:pointer"><td>${o.shipDate}</td><td><b>${o.no}</b></td><td>${o.address}</td><td>${Object.entries(o.items).map(([k,v])=>`${k} ${v}개`).join(" · ")}</td></tr>`).join("")}</tbody></table>`:'<div class="empty">다가오는 발송 주문이 없습니다.</div>';
+ document.getElementById("todayText").textContent=new Date().toLocaleDateString("ko-KR",{year:"numeric",month:"long",day:"numeric",weekday:"long"});
+}
+initKitInputs();refresh();
+</script>
+</body>
+</html>
