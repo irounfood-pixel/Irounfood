@@ -52,7 +52,7 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{padding:12px 10px
   </section>
 
   <section id="order" class="page hidden">
-    <div class="top"><div><h1>새 주문 등록</h1><p>필요한 정보만 입력하면 주문번호가 자동으로 생성됩니다.</p></div></div>
+    <div class="top"><div><h1 id="orderPageTitle">새 주문 등록</h1><p>필요한 정보만 입력하면 주문번호가 자동으로 생성됩니다.</p></div></div>
     <div class="panel">
       <div class="notice">주문번호는 자동 생성됩니다. 한 주문에 여러 키트를 함께 입력할 수 있습니다.</div>
       <div class="formgrid">
@@ -62,7 +62,7 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{padding:12px 10px
       </div>
       <div class="field" style="margin-top:16px"><label>키트별 수량</label><div class="kitbox" id="kitInputs"></div></div>
       <div class="field" style="margin-top:16px"><label>요청사항 (선택)</label><textarea id="note" placeholder="배송 또는 주문 관련 요청사항"></textarea></div>
-      <div class="row" style="justify-content:flex-end;margin-top:18px"><button class="btn secondary" onclick="showPage('dashboard')">취소</button><button class="btn primary" onclick="saveOrder()">주문 저장</button></div>
+      <div class="row" style="justify-content:flex-end;margin-top:18px"><button class="btn secondary" onclick="showPage('dashboard')">취소</button><button class="btn primary" id="saveOrderBtn" onclick="saveOrder()">주문 저장</button></div>
     </div>
   </section>
 
@@ -104,18 +104,40 @@ let orders=JSON.parse(localStorage.getItem("iroonOrders")||"[]");
 let stock=JSON.parse(localStorage.getItem("iroonStock")||"{}");
 kits.forEach(k=>{if(stock[k]===undefined)stock[k]=0});
 let calDate=new Date();
+let editingOrderNo=null;
 
 function todayStr(d=new Date()){return d.toISOString().slice(0,10)}
 function nextOrderNo(){let nums=orders.map(o=>parseInt(o.no,10)).filter(n=>!isNaN(n));let base=parseInt(String(new Date().getFullYear()).slice(2)+"0001");let n=Math.max(base,...nums)+1;return String(n)}
-function openOrder(){showPage("order");document.getElementById("orderNo").value=nextOrderNo();document.getElementById("shipDate").value=todayStr(new Date(Date.now()+86400000));document.getElementById("address").value="";document.getElementById("note").value="";document.querySelectorAll("#kitInputs input").forEach(i=>i.value="")}
+function openOrder(){
+ editingOrderNo=null;
+ showPage("order");
+ document.getElementById("orderPageTitle").textContent="새 주문 등록";
+ document.getElementById("saveOrderBtn").textContent="주문 저장";
+ document.getElementById("orderNo").value=nextOrderNo();
+ document.getElementById("shipDate").value=todayStr(new Date(Date.now()+86400000));
+ document.getElementById("address").value="";
+ document.getElementById("note").value="";
+ document.querySelectorAll("#kitInputs input").forEach(i=>i.value="");
+}
 function initKitInputs(){document.getElementById("kitInputs").innerHTML=kits.map(k=>`<div class="kitrow"><span>${k}</span><input type="number" min="0" value="0" data-kit="${k}"></div>`).join("")}
 function saveOrder(){
  let no=document.getElementById("orderNo").value,address=document.getElementById("address").value.trim(),shipDate=document.getElementById("shipDate").value;
  if(!address||!shipDate){alert("배송지와 발송일을 입력해주세요.");return}
  let items={};document.querySelectorAll("#kitInputs input").forEach(i=>{let q=Number(i.value)||0;if(q>0)items[i.dataset.kit]=q});
  if(!Object.keys(items).length){alert("키트 수량을 하나 이상 입력해주세요.");return}
- orders.push({no,address,shipDate,items,note:document.getElementById("note").value.trim(),created:new Date().toISOString()});
- localStorage.setItem("iroonOrders",JSON.stringify(orders));alert(`${no} 주문이 등록되었습니다.`);showPage("orders");refresh();
+ let note=document.getElementById("note").value.trim();
+ if(editingOrderNo){
+   let idx=orders.findIndex(x=>x.no===editingOrderNo);
+   if(idx>=0){orders[idx]={...orders[idx],address,shipDate,items,note,updated:new Date().toISOString()};}
+   localStorage.setItem("iroonOrders",JSON.stringify(orders));
+   alert(`${no} 주문이 수정되었습니다.`);
+ }else{
+   orders.push({no,address,shipDate,items,note,created:new Date().toISOString()});
+   localStorage.setItem("iroonOrders",JSON.stringify(orders));
+   alert(`${no} 주문이 등록되었습니다.`);
+ }
+ editingOrderNo=null;
+ showPage("orders");refresh();
 }
 function showPage(id,btn){
  document.querySelectorAll(".page").forEach(p=>p.classList.add("hidden"));document.getElementById(id).classList.remove("hidden");
@@ -129,7 +151,33 @@ function renderOrders(){
  if(!arr.length){document.getElementById("ordersTable").innerHTML='<div class="empty">등록된 주문이 없습니다.</div>';return}
  document.getElementById("ordersTable").innerHTML=`<table><thead><tr><th>주문번호</th><th>배송지</th><th>발송일</th><th>키트</th><th>수량</th><th>상태</th></tr></thead><tbody>${arr.map(o=>{let total=Object.values(o.items).reduce((a,b)=>a+b,0);return `<tr onclick="detail('${o.no}')" style="cursor:pointer"><td><b>${o.no}</b></td><td>${o.address}</td><td>${o.shipDate}</td><td>${Object.keys(o.items).slice(0,2).join(", ")}${Object.keys(o.items).length>2?" 외":""}</td><td>${total}개</td><td><span class="badge green">발송예정</span></td></tr>`}).join("")}</tbody></table>`;
 }
-function detail(no){let o=orders.find(x=>x.no===no);document.getElementById("modalTitle").textContent=`주문 ${o.no}`;document.getElementById("modalBody").innerHTML=`<p><b>배송지</b><br>${o.address}</p><p><b>발송일</b><br>${o.shipDate}</p><p><b>키트</b></p><table><tbody>${Object.entries(o.items).map(([k,v])=>`<tr><td>${k}</td><td class="num">${v}개</td></tr>`).join("")}</tbody></table>${o.note?`<p><b>요청사항</b><br>${o.note}</p>`:""}<div style="text-align:right;margin-top:18px"><button class="btn secondary" onclick="closeModal()">닫기</button></div>`;document.getElementById("modal").classList.remove("hidden")}
+function detail(no){
+ let o=orders.find(x=>x.no===no); if(!o)return;
+ document.getElementById("modalTitle").textContent=`주문 ${o.no}`;
+ document.getElementById("modalBody").innerHTML=`<p><b>배송지</b><br>${o.address}</p><p><b>발송일</b><br>${o.shipDate}</p><p><b>키트</b></p><table><tbody>${Object.entries(o.items).map(([k,v])=>`<tr><td>${k}</td><td class="num">${v}개</td></tr>`).join("")}</tbody></table>${o.note?`<p><b>요청사항</b><br>${o.note}</p>`:""}<div class="row" style="justify-content:flex-end;margin-top:18px;flex-wrap:wrap"><button class="btn secondary" onclick="closeModal()">닫기</button><button class="btn secondary" onclick="editOrder('${o.no}')">수정</button><button class="btn primary" style="background:#b83e3a" onclick="deleteOrder('${o.no}')">삭제</button></div>`;
+ document.getElementById("modal").classList.remove("hidden")
+}
+function editOrder(no){
+ let o=orders.find(x=>x.no===no); if(!o)return;
+ closeModal();
+ editingOrderNo=no;
+ showPage("order");
+ document.getElementById("orderPageTitle").textContent=`주문 ${no} 수정`;
+ document.getElementById("saveOrderBtn").textContent="수정 저장";
+ document.getElementById("orderNo").value=no;
+ document.getElementById("shipDate").value=o.shipDate;
+ document.getElementById("address").value=o.address;
+ document.getElementById("note").value=o.note||"";
+ document.querySelectorAll("#kitInputs input").forEach(i=>i.value=o.items[i.dataset.kit]||0);
+}
+function deleteOrder(no){
+ let o=orders.find(x=>x.no===no); if(!o)return;
+ if(!confirm(`주문 ${no}을(를) 삭제하시겠습니까?\n삭제하면 되돌릴 수 없습니다.`))return;
+ orders=orders.filter(x=>x.no!==no);
+ localStorage.setItem("iroonOrders",JSON.stringify(orders));
+ closeModal(); refresh(); renderOrders();
+ alert(`${no} 주문이 삭제되었습니다.`);
+}
 function closeModal(){document.getElementById("modal").classList.add("hidden")}
 function renderCalendar(){
  let y=calDate.getFullYear(),m=calDate.getMonth();document.getElementById("monthTitle").textContent=`${y}년 ${m+1}월`;
