@@ -79,3 +79,9 @@
 - 테스트 DB `public.partner_sheet_sources`에 파일 ID 등록, `enabled=false`로 안전하게 비활성화 유지
 - 원본 템플릿 및 운영 Google Sheets 변경 없음
 - 별도 인증 토큰 생성/등록, Google Apps Script 관리자 소유 설치·권한 승인, 실제 편집 동기화 테스트는 아직 하지 않음
+
+### 보안 점검 결과
+- Supabase 테스트 Security Advisor 실행(2026-10-28). 새 테이블은 모두 RLS 활성화; private token 테이블은 의도적으로 정책 없음(서버 전용)
+- 운영 함수 정의를 테스트 프로젝트에 복제하면서 부여된 불필요한 익명 RPC 실행 권한 발견 → 테스트 프로젝트에서 즉시 REVOKE, authenticated만 실행 부여(함수 내부 private.is_admin 검사 유지)
+- 기존 테스트 함수를 포함한 SECURITY DEFINER 관련 경고와 유출 비밀번호 보호 비활성 경고는 별도 심층 검토 항목. `submit_customer_order_v2`의 익명 접근은 기존 고객 주문 기능 요구와 관련되므로 무분별하게 차단하지 않음
+- 운영 프로젝트 조회 결과 주문 40건, 주문상품 74행. 운영 프로젝트에 신규 DDL/DML 적용 없음
