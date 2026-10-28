@@ -13,6 +13,8 @@
 
 /* 재고 즉시 수정: 기존 팝업 없이 품목명 옆에서 수량 수정 */
 .stock-inline{display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-width:330px}.stock-inline b{margin-right:4px}.stock-qty-input{width:102px;min-height:42px;border:1px solid #cbd8cf;border-radius:9px;padding:8px;font:inherit}.stock-qty-input:focus{outline:2px solid #477762;outline-offset:1px}.stock-inline button{min-height:38px;padding:8px 12px}.stock-inline button:disabled{opacity:.6;cursor:wait}.stock-step-btn{min-width:34px;min-height:38px;padding:5px 9px;border:1px solid #cad8ce;border-radius:8px;background:#f1f6f2;color:#315c4a;font-size:19px;font-weight:800;line-height:1}.stock-step-btn:active{background:#d9e8de}.stock-step-btn:focus-visible{outline:2px solid #315c4a;outline-offset:2px}
+
+.parcel-table{min-width:1390px}.parcel-table td{vertical-align:middle}.parcel-track-input{width:225px;min-height:40px;padding:7px 10px;border:1px solid #ced9d1;border-radius:8px}.parcel-qty-input{width:75px;min-height:40px;padding:7px;border:1px solid #ced9d1;border-radius:8px}
 </style>
 </head>
 <body><div role="status" style="position:sticky;top:0;z-index:1000;padding:10px 14px;background:#e8f4ee;color:#24563b;border-bottom:1px solid #c7e4d2;text-align:center;font:700 13px/1.45 system-ui,-apple-system,sans-serif">테스트 전용 · 실제 주문/출고 금지 · 운영 데이터와 분리된 검증용 서버에 연결됩니다.</div>
@@ -319,18 +321,68 @@ async function rejectSelectedPartnerRows(){
  if(error)return toast('반려 실패: '+error.message);
  await renderPartnerOrders(state.page==='requests');toast('선택한 행을 반려했습니다.');
 }
+
+const parcelFields=[['ice_small','아이스 소'],['ice_medium','아이스 중'],['ice_large','아이스 대'],['paper_medium','종이 중'],['paper_large','종이 대']];
+const parcelBusy=new Set();
 async function renderParcelEditor(){
- $('page').innerHTML='<div class="top"><h1>송장·포장박스</h1></div><div class="panel">출고정보를 불러오는 중입니다.</div>';
+ const page=$('page');
+ page.innerHTML='<div class="top"><h1>송장·포장박스</h1></div><div class="panel">출고정보를 불러오는 중입니다.</div>';
  const {data,error}=await db.from('order_shipping_details').select('*');
- if(error){$('page').innerHTML='<div class="panel dangertext">'+esc(error.message)+'</div>';return}
+ if(error){page.innerHTML='<div class="panel dangertext">'+esc(error.message)+'</div>';return}
  const detail=Object.fromEntries((data||[]).map(x=>[x.order_id,x]));
- const orders=(state.orders||[]).filter(x=>x.order_status!=='취소').slice().sort((a,b)=>String(b.ship_date).localeCompare(String(a.ship_date))).slice(0,200);
- $('page').innerHTML='<div class="top"><h1>송장·포장박스</h1></div><div class="panel"><p class="muted">관리자 입력 전용. 실제 포장 수량을 직접 기록합니다. 다중 송장번호는 쉼표로 구분합니다.</p>'
- +'<div class="tablewrap"><table class="table"><thead><tr><th>주문</th><th>발송일</th><th>수령인</th><th>송장번호</th><th>박스 합계</th><th>수정</th></tr></thead><tbody>'
- +orders.map(o=>{const d=detail[o.id]||{};const total=['ice_small','ice_medium','ice_large','paper_medium','paper_large'].reduce((a,k)=>a+Number(d[k]||0),0);
- return '<tr><td>'+esc(o.order_no)+'</td><td>'+esc(o.ship_date)+'</td><td>'+esc(o.manager_name||o.customer_name||'')+'</td><td>'+esc(d.tracking_numbers||'')+'</td><td>'+total+'</td><td><button class="btn secondary" onclick="editParcel('+JSON.stringify(o.id).replace(/"/g,'&quot;')+')">입력</button></td></tr>'}).join('')
- +'</tbody></table></div></div>';window.__parcelDetails=detail;
+ const orders=(state.orders||[]).filter(x=>x.order_status!=='취소')
+  .slice().sort((a,b)=>String(b.ship_date).localeCompare(String(a.ship_date))).slice(0,300);
+ window.__parcelDetails=detail;
+ const heads=parcelFields.map(([,label])=>'<th>'+label+'</th>').join('');
+ const rows=orders.map(o=>{
+  const d=detail[o.id]||{};
+  const boxes=parcelFields.map(([key,label])=>'<td><input class="parcel-qty-input" type="number" inputmode="numeric" min="0" max="1000" step="1" id="parcel-'+key+'-'+o.id+'" aria-label="'+esc(o.order_no+' '+label)+'" value="'+esc(d[key]??0)+'"></td>').join('');
+  return '<tr><td><b>'+esc(o.order_no)+'</b></td><td>'+esc(o.ship_date||'')+'</td><td>'+esc(o.manager_name||o.customer_name||'')+'</td>'
+   +'<td><input class="parcel-track-input" id="parcel-track-'+o.id+'" aria-label="'+esc(o.order_no+' 송장번호')+'" placeholder="쉼표로 여러 개 입력" maxlength="1000" value="'+esc(d.tracking_numbers||'')+'"></td>'
+   +boxes+'<td><button class="btn primary" id="parcel-save-'+o.id+'" data-id="'+o.id+'" onclick="saveInlineParcel(this.dataset.id)">저장</button></td>'
+   +'<td><button class="btn light" data-id="'+o.id+'" onclick="openOrder(this.dataset.id)">사진·상세</button></td></tr>';
+ }).join('');
+ page.innerHTML='<div class="top"><div><h1>송장·포장박스</h1><div class="muted">주문번호별로 송장번호와 5종 박스 수량을 표 안에서 입력한 뒤 해당 행의 저장을 누르세요.</div></div><button class="btn secondary" onclick="renderParcelEditor()">새로고침</button></div>'
+  +'<div class="panel"><p class="muted">송장번호 여러 개는 쉼표(,)로 구분합니다. 저장하기 전에는 DB가 변경되지 않습니다.</p>'
+  +'<div class="tablewrap"><table class="table parcel-table"><thead><tr><th>주문번호</th><th>발송일</th><th>수령인</th><th>송장번호</th>'+heads+'<th>저장</th><th>사진</th></tr></thead><tbody>'
+  +(rows||'<tr><td colspan="11"><div class="empty">주문이 없습니다.</div></td></tr>')+'</tbody></table></div></div>';
 }
+async function saveInlineParcel(id){
+ if(parcelBusy.has(id))return;
+ const order=state.orders.find(x=>x.id===id);
+ if(!order)return toast('주문을 찾을 수 없습니다.');
+ const track=$('parcel-track-'+id);
+ const button=$('parcel-save-'+id);
+ if(!track||!button)return;
+ const tracking=track.value.trim();
+ if(tracking.length>1000)return toast('송장번호는 1000자 이내로 입력해주세요.');
+ const counts=[];
+ for(const [key] of parcelFields){
+  const input=$('parcel-'+key+'-'+id),raw=input?.value.trim()??'';
+  if(!/^\d+$/.test(raw)||Number(raw)>1000)return toast('박스별 수량은 0~1000의 정수로 입력하세요.');
+  counts.push(Number(raw));
+ }
+ const original=window.__parcelDetails?.[id]||null;
+ if(original&&tracking===String(original.tracking_numbers||'')&&parcelFields.every(([k],i)=>counts[i]===Number(original[k]||0)))return toast('변경된 내용이 없습니다.');
+ parcelBusy.add(id);button.disabled=true;button.textContent='저장 중';
+ try{
+  const {data:current,error:checkError}=await db.from('order_shipping_details').select('*').eq('order_id',id).maybeSingle();
+  if(checkError)throw checkError;
+  if((original?.updated_at||null)!==(current?.updated_at||null))throw new Error('다른 작업에서 출고정보가 변경됐습니다. 새로고침 후 다시 입력해주세요.');
+  const {error}=await db.rpc('admin_save_order_shipping',{
+   p_order_id:id,p_tracking:tracking,
+   p_ice_small:counts[0],p_ice_medium:counts[1],p_ice_large:counts[2],
+   p_paper_medium:counts[3],p_paper_large:counts[4]
+  });
+  if(error)throw error;
+  const {data:updated,error:refreshError}=await db.from('order_shipping_details').select('*').eq('order_id',id).single();
+  if(refreshError)throw refreshError;
+  window.__parcelDetails[id]=updated;
+  toast('주문 '+order.order_no+' 송장·박스 저장 완료');
+ }catch(e){toast('출고정보 저장 실패: '+(e.message||e))}
+ finally{parcelBusy.delete(id);button.disabled=false;button.textContent='저장';}
+}
+
 async function editParcel(id){
  const old=window.__parcelDetails?.[id]||{};
  const order=state.orders.find(x=>x.id===id);if(!order)return toast('주문을 찾을 수 없습니다.');
