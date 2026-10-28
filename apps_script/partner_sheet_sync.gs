@@ -54,7 +54,8 @@ function dateString_(value,ss) {
 }
 function numberString_(value) {return String(value===''?0:value).replace(/,/g,'').trim();}
 function sourceUid_(sheet,row,used) {
- const target=sheet.getRange(row,1,1,sheet.getMaxColumns());
+ // Metadata requires a true whole-row range, not a rectangle with the same width.
+ const target=sheet.getRange(row+':'+row);
  const found=target.getDeveloperMetadata().filter(m=>m.getKey()===ROW_KEY);
  let uid=found.length?String(found[0].getValue()):'';
  if(!/^[0-9a-f-]{36}$/i.test(uid)||used.has(uid)){
@@ -104,7 +105,10 @@ function syncOnePartnerSheet_(cfg) {
   // Edge Function limit: 500행/호출
   for(let i=0;i<rows.length;i+=400)result=postPartnerRows_(endpoint,cfg,rows.slice(i,i+400));
   // 빈 행만 있는 파일은 상태 조회가 없어 접수현황을 건드리지 않습니다.
-  if(rows.length&&result.status_rows)writePartnerStatus_(ss,result.status_rows);
+  if(rows.length&&result.status_rows){
+   writePartnerStatus_(ss,result.status_rows);
+   protectPartnerSheet_(ss,result.status_rows);
+  }
  }finally {lock.releaseLock();}
 }
 function postPartnerRows_(endpoint,cfg,rows) {
@@ -127,4 +131,35 @@ function writePartnerStatus_(ss,states) {
   String(s.status||''),String(s.updated_at||'')
  ]);
  if(out.length)sheet.getRange(2,1,out.length,5).setValues(out);
+}
+
+function restrictPartnerProtection_(protection,email) {
+ protection.setWarningOnly(false);
+ protection.addEditor(email);
+ const others=protection.getEditors().filter(u=>u.getEmail()!==email);
+ if(others.length)protection.removeEditors(others);
+ if(protection.canDomainEdit())protection.setDomainEdit(false);
+}
+function protectPartnerSheet_(ss,states) {
+ const sheet=ss.getSheetByName('주문입력'), status=ss.getSheetByName('접수현황');
+ const email=ss.getOwner().getEmail();
+ const protections=sheet.getProtections(SpreadsheetApp.ProtectionType.RANGE);
+ const rangeProtection=(range,description,legacyDescription)=>{
+  let p=protections.find(x=>x.getDescription()===description||legacyDescription&&x.getDescription()===legacyDescription);
+  if(p)p.setRange(range);else {p=range.protect().setDescription(description);protections.push(p);}
+  restrictPartnerProtection_(p,email);
+ };
+ rangeProtection(sheet.getRange('I:N'),'IROUN_ADMIN_COLUMNS_V2','관리자 전용: 송장번호와 포장박스');
+ rangeProtection(sheet.getRange('A1:N1'),'IROUN_ORDER_HEADERS_V2');
+ if(status){
+  let p=status.getProtections(SpreadsheetApp.ProtectionType.SHEET).find(x=>x.getDescription()==='IROUN_STATUS_V2');
+  if(!p)p=status.protect().setDescription('IROUN_STATUS_V2');
+  restrictPartnerProtection_(p,email);
+ }
+ for(const state of states.filter(s=>s.status==='승인')){
+  const row=Number(state.source_row);
+  if(!Number.isInteger(row)||row<2||row>sheet.getMaxRows())continue;
+  const matched=sheet.getRange(row+':'+row).getDeveloperMetadata().some(m=>m.getKey()===ROW_KEY&&m.getValue()===state.source_uid);
+  if(matched)rangeProtection(sheet.getRange(row,1,1,8),'IROUN_APPROVED_V2:'+state.source_uid);
+ }
 }

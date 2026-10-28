@@ -115,7 +115,8 @@ BEGIN
      quantity=excluded.quantity,recipient=excluded.recipient,contact=excluded.contact,
      address=excluded.address,note=excluded.note,updated_at=now()
    WHERE public.partner_order_rows.status='승인대기'
-     AND public.partner_order_rows.content_hash IS DISTINCT FROM excluded.content_hash;
+     AND (public.partner_order_rows.content_hash IS DISTINCT FROM excluded.content_hash
+       OR public.partner_order_rows.source_row IS DISTINCT FROM excluded.source_row);
    v_n:=v_n+1;
  END LOOP;
  RETURN jsonb_build_object('ok',true,'processed_rows',v_n,'approved_changed_conflicts',v_conflict);
