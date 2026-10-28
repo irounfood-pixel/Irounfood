@@ -71,3 +71,11 @@
 - [ ] 운영 배포 / `main` 병합 (미실시)
 
 **주의:** DB/RPC SQL 단위 검증은 완료되었으나 Google Apps Script 직접 연동, 트리거 실행 권한, 실제 웹 관리자 로그인과 브라우저 상의 주문 승인은 아직 검증하지 않았습니다. 거래처용 템플릿은 공유 전 상태로 유지합니다. 거래처 파일에 관리자 동기화 토큰을 넣지 마세요.
+
+### Google Sheets 연결 준비 단계
+- 검증용 비공유 파일 생성: https://docs.google.com/spreadsheets/d/1cvd7XNsGMUfdMWudbqD4LFsBwIh6sTIdn8PWe_k4QNM/edit
+- 원본 14열 템플릿과 별도 파일 ID 확인, 3개 탭 및 상품 드롭다운 확인
+- Google Drive 공유 상태: `shared=false`, 파일 소유자 외 편집자 없음
+- 테스트 DB `public.partner_sheet_sources`에 파일 ID 등록, `enabled=false`로 안전하게 비활성화 유지
+- 원본 템플릿 및 운영 Google Sheets 변경 없음
+- 별도 인증 토큰 생성/등록, Google Apps Script 관리자 소유 설치·권한 승인, 실제 편집 동기화 테스트는 아직 하지 않음
