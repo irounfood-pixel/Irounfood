@@ -4,7 +4,81 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>이로운과자점 주문관리</title>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2">
+/* 거래처별 Google Sheets 연동 — 관리자 검토 화면. 인증된 관리자만 RLS로 조회 가능 */
+let partnerSelected=new Set();
+function partnerIds(){return [...document.querySelectorAll('input[data-partner-id]:checked')].map(x=>x.dataset.partnerId)}
+async function renderPartnerOrders(){
+ $('page').innerHTML='<div class="top"><h1>거래처 주문 승인</h1></div><div class="panel">거래처에서 입력한 주문을 불러오는 중입니다.</div>';
+ const {data,error}=await db.from('partner_order_rows')
+  .select('id,sheet_id,source_row,order_date,ship_date,product_name,quantity,recipient,contact,address,note,status,approved_order_id,updated_at,partner_sheet_sources(partner_name)')
+  .order('updated_at',{ascending:false}).limit(500);
+ if(error){$('page').innerHTML='<div class="top"><h1>거래처 주문 승인</h1></div><div class="panel dangertext">'+esc(error.message)+'</div>';return}
+ const rows=data||[], pending=rows.filter(r=>r.status==='승인대기');
+ window.__partnerRows=rows; partnerSelected.clear();
+ const table=pending.map(r=>'<tr><td><input type="checkbox" data-partner-id="'+esc(r.id)+'"></td><td>'+esc(r.partner_sheet_sources?.partner_name||'-')+'</td><td>'+esc(r.order_date)+'</td><td>'+esc(r.ship_date)+'</td><td>'+esc(r.recipient)+'</td><td>'+esc(r.contact)+'</td><td>'+esc(r.product_name)+'</td><td>'+esc(r.quantity)+'</td><td>'+esc(r.address)+'</td><td>'+esc(r.note||'')+'</td></tr>').join('');
+ $('page').innerHTML='<div class="top"><h1>거래처 주문 승인</h1><button class="btn light" onclick="renderPartnerOrders()">새로고침</button></div>'
+ +'<div class="panel"><b>승인 대기 '+pending.length+'행</b><p class="muted">동일 거래처·주문일·발송일·수령인·연락처·주소의 상품 행만 함께 선택하세요. 동일 정보의 별도 주문은 구분하여 승인하세요.</p>'
+ +'<div class="toolbar"><button class="btn primary" onclick="approveSelectedPartnerRows()">선택한 행을 한 주문으로 승인</button>'
+ +'<button class="btn danger" onclick="rejectSelectedPartnerRows()">선택 반려</button></div>'
+ +'<div class="tablewrap"><table class="table"><thead><tr><th>선택</th><th>거래처</th><th>주문일</th><th>발송일</th><th>수령인</th><th>연락처</th><th>상품</th><th>수량</th><th>배송지</th><th>요청</th></tr></thead><tbody>'
+ +(table||'<tr><td colspan="10" class="empty">현재 승인 대기 건이 없습니다.</td></tr>')+'</tbody></table></div></div>'
+ +'<div class="panel"><b>승인 완료 / 반려 기록</b><p class="muted">승인된 행은 거래처 시트 변경만으로 운영 주문이 변경되지 않습니다.</p>'
+ +'<div class="tablewrap"><table class="table"><thead><tr><th>상태</th><th>거래처</th><th>발송일</th><th>수령인</th><th>상품</th><th>운영 주문 ID</th></tr></thead><tbody>'
+ +(rows.filter(r=>r.status!=='승인대기').map(r=>'<tr><td>'+esc(r.status)+'</td><td>'+esc(r.partner_sheet_sources?.partner_name||'')+'</td><td>'+esc(r.ship_date)+'</td><td>'+esc(r.recipient)+'</td><td>'+esc(r.product_name)+'</td><td>'+esc(r.approved_order_id||'-')+'</td></tr>').join('')||'<tr><td colspan="6">처리 이력이 없습니다.</td></tr>')+'</tbody></table></div></div>';
+}
+async function approveSelectedPartnerRows(){
+ const ids=partnerIds();if(!ids.length)return toast('승인할 상품 행을 선택해주세요.');
+ const rows=(window.__partnerRows||[]).filter(r=>ids.includes(r.id));
+ const key=r=>[r.sheet_id,r.order_date,r.ship_date,r.recipient,r.contact,r.address].join('|');
+ if(new Set(rows.map(key)).size!==1)return toast('서로 다른 배송정보는 함께 승인할 수 없습니다.');
+ if(!confirm(rows.length+'개 상품 행을 한 주문으로 승인할까요? 승인을 누르면 운영 주문이 생성됩니다.'))return;
+ const {data,error}=await db.rpc('approve_partner_sheet_rows',{p_row_ids:ids});
+ if(error)return toast('승인 실패: '+error.message);
+ toast('주문접수 등록 완료: '+data);await loadAll();renderPartnerOrders();
+}
+async function rejectSelectedPartnerRows(){
+ const ids=partnerIds();if(!ids.length)return toast('반려할 상품 행을 선택해주세요.');
+ if(!confirm(ids.length+'개 행을 반려할까요? 반려한 행은 시트 자동 동기화로 다시 접수되지 않습니다.'))return;
+ const {error}=await db.rpc('reject_partner_sheet_rows',{p_row_ids:ids});
+ if(error)return toast('반려 실패: '+error.message);
+ await renderPartnerOrders();toast('선택한 행을 반려했습니다.');
+}
+async function renderParcelEditor(){
+ $('page').innerHTML='<div class="top"><h1>송장·포장박스</h1></div><div class="panel">출고정보를 불러오는 중입니다.</div>';
+ const {data,error}=await db.from('order_shipping_details').select('*');
+ if(error){$('page').innerHTML='<div class="panel dangertext">'+esc(error.message)+'</div>';return}
+ const detail=Object.fromEntries((data||[]).map(x=>[x.order_id,x]));
+ const orders=(state.orders||[]).filter(x=>x.order_status!=='취소').slice().sort((a,b)=>String(b.ship_date).localeCompare(String(a.ship_date))).slice(0,200);
+ $('page').innerHTML='<div class="top"><h1>송장·포장박스</h1></div><div class="panel"><p class="muted">관리자 입력 전용. 실제 포장 수량을 직접 기록합니다. 다중 송장번호는 쉼표로 구분합니다.</p>'
+ +'<div class="tablewrap"><table class="table"><thead><tr><th>주문</th><th>발송일</th><th>수령인</th><th>송장번호</th><th>박스 합계</th><th>수정</th></tr></thead><tbody>'
+ +orders.map(o=>{const d=detail[o.id]||{};const total=['ice_small','ice_medium','ice_large','paper_medium','paper_large'].reduce((a,k)=>a+Number(d[k]||0),0);
+ return '<tr><td>'+esc(o.order_no)+'</td><td>'+esc(o.ship_date)+'</td><td>'+esc(o.manager_name||o.customer_name||'')+'</td><td>'+esc(d.tracking_numbers||'')+'</td><td>'+total+'</td><td><button class="btn secondary" onclick="editParcel('+JSON.stringify(o.id).replace(/"/g,'&quot;')+')">입력</button></td></tr>'}).join('')
+ +'</tbody></table></div></div>';window.__parcelDetails=detail;
+}
+async function editParcel(id){
+ const old=window.__parcelDetails?.[id]||{};
+ const order=state.orders.find(x=>x.id===id);if(!order)return toast('주문을 찾을 수 없습니다.');
+ $('modal').classList.remove('hidden');
+ $('modalBox').innerHTML='<h2>출고정보 입력 - '+esc(order.order_no)+'</h2>'
+ +'<div class="field"><label>송장번호 (쉼표 구분)</label><textarea id="parcelTrack">'+esc(old.tracking_numbers||'')+'</textarea></div>'
+ +'<div class="formgrid3" style="margin-top:10px">'+[
+ ['ice_small','아이스박스 소'],['ice_medium','아이스박스 중'],['ice_large','아이스박스 대'],
+ ['paper_medium','종이박스 중'],['paper_large','종이박스 대']
+ ].map(([k,label])=>'<div class="field"><label>'+label+'</label><input type="number" min="0" step="1" id="parcel_'+k+'" value="'+esc(old[k]??0)+'"></div>').join('')+'</div>'
+ +'<div class="toolbar" style="margin-top:15px"><button class="btn primary" onclick="saveParcel('+JSON.stringify(id).replace(/"/g,'&quot;')+')">저장</button><button class="btn light" onclick="document.getElementById(\'modal\').classList.add(\'hidden\')">닫기</button></div>';
+}
+async function saveParcel(id){
+ const keys=['ice_small','ice_medium','ice_large','paper_medium','paper_large'];
+ const v=keys.map(k=>Number($('parcel_'+k).value));
+ if(v.some(n=>!Number.isSafeInteger(n)||n<0||n>1000))return toast('박스별 수량은 0~1000의 정수로 입력하세요.');
+ const {error}=await db.rpc('admin_save_order_shipping',{p_order_id:id,p_tracking:$('parcelTrack').value,
+ p_ice_small:v[0],p_ice_medium:v[1],p_ice_large:v[2],p_paper_medium:v[3],p_paper_large:v[4]});
+ if(error)return toast('저장 실패: '+error.message);
+ $('modal').classList.add('hidden');toast('출고정보 저장 완료');renderParcelEditor();
+}
+
+</script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <style>
 :root{--p:#315c4a;--p2:#477762;--bg:#f4f7f4;--card:#fff;--text:#223028;--muted:#6c7771;--line:#dfe7e1;--danger:#b9423e;--warn:#9a6a00;--shadow:0 8px 24px rgba(32,55,44,.07)}*{box-sizing:border-box}html,body{margin:0;min-height:100%;font-family:-apple-system,BlinkMacSystemFont,"Noto Sans KR",Arial,sans-serif;background:var(--bg);color:var(--text)}button,input,textarea,select{font:inherit}button{cursor:pointer}.hidden{display:none!important}.layout{min-height:100vh}.side{position:fixed;left:0;top:0;bottom:0;width:230px;background:#fff;border-right:1px solid var(--line);padding:22px 14px;z-index:20}.logo{font-weight:900;font-size:20px;color:var(--p);padding:8px 10px 18px}.logo small{display:block;color:var(--muted);font-size:11px;font-weight:500;margin-top:5px}.nav button{display:block;width:100%;border:0;background:transparent;color:#55625b;text-align:left;padding:12px;border-radius:10px;margin:3px 0;font-weight:700}.nav button.active,.nav button:hover{background:#edf4ef;color:var(--p)}.side .foot{position:absolute;left:14px;right:14px;bottom:18px;color:var(--muted);font-size:11px;padding:10px}.main{margin-left:230px;padding:28px;max-width:1500px}.top{display:flex;justify-content:space-between;align-items:center;gap:14px;margin-bottom:18px}.top h1{font-size:26px;margin:0}.btn{border:0;border-radius:10px;padding:11px 15px;min-height:42px;font-weight:800}.primary{background:var(--p);color:#fff}.secondary{background:#edf2ee;color:var(--p)}.danger{background:#fae9e8;color:var(--danger)}.light{background:#fff;color:#455249;border:1px solid var(--line)}.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.stat,.panel{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow)}.stat{padding:18px}.stat .label{font-size:12px;color:var(--muted);font-weight:700}.stat .num{font-size:28px;font-weight:900;margin-top:6px}.panel{padding:18px;margin-top:15px}.between{display:flex;justify-content:space-between;align-items:center;gap:12px}.muted{color:var(--muted);font-size:13px}.formgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}.formgrid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.field label{display:block;font-size:12px;font-weight:800;color:#68736d;margin-bottom:6px}.field input,.field textarea,.field select{width:100%;border:1px solid #d2ddd5;border-radius:9px;background:#fff;padding:11px 12px;outline:none}.field textarea{min-height:90px;resize:vertical}.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.toolbar input,.toolbar select{border:1px solid var(--line);background:#fff;border-radius:9px;padding:10px 11px;min-height:42px}.tablewrap{overflow:auto;border:1px solid var(--line);border-radius:11px;margin-top:12px}.table{width:100%;border-collapse:collapse;min-width:760px}.table th,.table td{padding:11px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;font-size:13px}.table th{background:#f7faf7;color:#67736c;white-space:nowrap}.table tr:last-child td{border-bottom:0}.badge{display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;font-size:11px;font-weight:800;background:#eef3ef;color:#52615a}.badge.warn{background:#fff4d9;color:var(--warn)}.badge.danger{background:#fce9e8;color:var(--danger)}.badge.good{background:#e9f5ee;color:#236544}.kitrow{display:grid;grid-template-columns:minmax(0,1fr) 120px 42px;gap:8px;align-items:end;margin-bottom:9px}.mini{font-size:11px;color:var(--muted)}.product-card{display:grid;grid-template-columns:1fr auto;gap:12px;padding:14px;border:1px solid var(--line);border-radius:12px;background:#fff;margin-top:9px}.modal{position:fixed;inset:0;background:rgba(19,28,23,.45);display:flex;align-items:center;justify-content:center;padding:20px;z-index:50}.modalbox{width:min(680px,100%);max-height:90vh;overflow:auto;background:#fff;border-radius:16px;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.2)}.toast{position:fixed;right:20px;bottom:20px;background:#26352e;color:#fff;padding:12px 15px;border-radius:10px;z-index:80;box-shadow:var(--shadow)}.login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}.loginbox{width:min(420px,100%);background:#fff;border:1px solid var(--line);border-radius:18px;padding:28px;box-shadow:var(--shadow)}.loginbox h1{margin:0;color:var(--p);font-size:25px}.loginbox p{color:var(--muted);font-size:13px}.empty{padding:32px 12px;text-align:center;color:var(--muted)}.qty{font-weight:900}.right{text-align:right}.calendar{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-top:12px}.day{background:#fff;border:1px solid var(--line);border-radius:10px;min-height:110px;padding:9px}.day .n{font-weight:900}.day .count{font-size:11px;color:var(--p);margin-top:6px}.day.mutedday{background:#fafcfa;color:#a1aaa4}.dangertext{color:var(--danger);font-weight:800}.green{color:var(--p);font-weight:800}@media(max-width:1050px){.grid4{grid-template-columns:repeat(2,1fr)}.grid3,.formgrid3{grid-template-columns:1fr 1fr}}@media(max-width:760px){.side{position:static;width:auto;height:auto;border-right:0;border-bottom:1px solid var(--line);padding:10px}.side .foot{display:none}.nav{display:flex;overflow:auto;gap:5px}.nav button{white-space:nowrap}.main{margin-left:0;padding:16px}.top h1{font-size:21px}.grid4,.grid3,.formgrid,.formgrid3{grid-template-columns:1fr}.table{min-width:700px}.kitrow{grid-template-columns:1fr 105px 40px}.calendar{gap:4px}.day{min-height:88px;padding:6px}}
@@ -32,7 +106,7 @@ const SUPABASE_URL='https://iqopdxrnkmpdivzndkxq.supabase.co';
 const SUPABASE_KEY='sb_publishable_8jMegFjVcyhp1SIRZHosAQ_fVoxo8Nr';
 const {createClient}=supabase; const db=createClient(SUPABASE_URL,SUPABASE_KEY);
 let state={page:'dashboard',orders:[],products:[],items:[],requests:[],movements:[],loading:false,errors:[]};
-const menus=[['dashboard','대시보드'],['order','주문등록'],['orders','주문현황'],['orderprocess','주문처리'],['shipped','출고완료'],['requests','고객주문'],['calendar','발송캘린더'],['prep','월별 준비량'],['products','상품관리'],['inventory','재고관리'],['settings','설정']];
+const menus=[['dashboard','대시보드'],['order','주문등록'],['orders','주문현황'],['orderprocess','주문처리'],['shipped','출고완료'],['requests','고객주문'],['partner','거래처 주문 승인'],['parcel','송장·포장박스'],['calendar','발송캘린더'],['prep','월별 준비량'],['products','상품관리'],['inventory','재고관리'],['settings','설정']];
 const $=id=>document.getElementById(id);
 function esc(v){return String(v??'').replace(/[&<>'"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[m]));}
 function toast(msg){$('toast').textContent=msg;$('toast').classList.remove('hidden');clearTimeout(window.__t);window.__t=setTimeout(()=>$('toast').classList.add('hidden'),2600)}
@@ -50,7 +124,7 @@ $('pw').addEventListener('keydown',e=>{if(e.key==='Enter')login()});
 $('email').addEventListener('keydown',e=>{if(e.key==='Enter')$('pw').focus()});
 db.auth.onAuthStateChange((_event,session)=>{if(session){$('login').classList.add('hidden');$('app').classList.remove('hidden');renderNav();if(!state.loading) init();}else{$('app').classList.add('hidden');$('login').classList.remove('hidden');}});
 function renderNav(){$('nav').innerHTML=menus.map(([k,n])=>`<button class="${state.page===k?'active':''}" onclick="route('${k}')">${n}</button>`).join('')}
-function route(p){state.page=p;renderNav();({dashboard:renderDashboard,order:renderOrderForm,orders:renderOrders,orderprocess:renderOrderProcessing,shipped:renderShippedOrders,requests:renderRequests,calendar:renderCalendar,prep:renderMonthlyPrep,products:renderProducts,inventory:renderInventory,settings:renderSettings}[p]||renderDashboard)()}
+function route(p){state.page=p;renderNav();({dashboard:renderDashboard,order:renderOrderForm,orders:renderOrders,orderprocess:renderOrderProcessing,shipped:renderShippedOrders,requests:renderRequests,partner:renderPartnerOrders,parcel:renderParcelEditor,calendar:renderCalendar,prep:renderMonthlyPrep,products:renderProducts,inventory:renderInventory,settings:renderSettings}[p]||renderDashboard)()}
 async function readTable(label,queryFactory){
  try{const {data,error}=await queryFactory();if(error){const message=label+': '+(error.message||'조회 오류');state.errors.push(message);console.error(message,error);return null;}return data||[];}
  catch(e){const message=label+': '+(e.message||e);state.errors.push(message);console.error(message,e);return null;}
