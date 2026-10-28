@@ -14,7 +14,7 @@
 /* 재고 즉시 수정: 기존 팝업 없이 품목명 옆에서 수량 수정 */
 .stock-inline{display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-width:330px}.stock-inline b{margin-right:4px}.stock-qty-input{width:102px;min-height:42px;border:1px solid #cbd8cf;border-radius:9px;padding:8px;font:inherit}.stock-qty-input:focus{outline:2px solid #477762;outline-offset:1px}.stock-inline button{min-height:38px;padding:8px 12px}.stock-inline button:disabled{opacity:.6;cursor:wait}.stock-qty-control{display:inline-flex;align-items:stretch;height:42px}.stock-qty-control .stock-qty-input{border-radius:9px 0 0 9px;width:96px;height:42px;min-height:42px;appearance:textfield;-moz-appearance:textfield}.stock-qty-control .stock-qty-input::-webkit-outer-spin-button,.stock-qty-control .stock-qty-input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}.stock-step-stack{display:flex;flex-direction:column;width:32px;height:42px}.stock-step-stack .stock-step-btn{width:32px;min-width:32px;min-height:0;height:21px;padding:0;border:1px solid #cad8ce;background:#f1f6f2;color:#315c4a;font-size:17px;font-weight:800;line-height:19px}.stock-step-stack .stock-step-btn:first-child{border-radius:0 8px 0 0;border-bottom:0}.stock-step-stack .stock-step-btn:last-child{border-radius:0 0 8px 0}.stock-step-btn:active{background:#d9e8de}.stock-step-btn:focus-visible{outline:2px solid #315c4a;outline-offset:2px}.stock-step-btn:disabled{opacity:.55;cursor:wait}
 
-.parcel-table{min-width:1390px}.parcel-table td{vertical-align:middle}.parcel-track-input{width:225px;min-height:40px;padding:7px 10px;border:1px solid #ced9d1;border-radius:8px}.parcel-qty-input{width:75px;min-height:40px;padding:7px;border:1px solid #ced9d1;border-radius:8px}
+.parcel-table{min-width:1390px}.parcel-table td{vertical-align:middle}.parcel-track-input{width:225px;min-height:40px;padding:7px 10px;border:1px solid #ced9d1;border-radius:8px}.parcel-number-control{display:inline-flex;align-items:stretch;height:40px;white-space:nowrap}.parcel-qty-input{width:65px;min-width:65px;height:40px;min-height:40px;padding:7px;border:1px solid #ced9d1;border-radius:8px 0 0 8px;appearance:textfield;-moz-appearance:textfield}.parcel-qty-input::-webkit-inner-spin-button,.parcel-qty-input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}.parcel-step-stack{display:flex;flex-direction:column;width:27px;height:40px}.parcel-step-btn{flex:1;min-height:0;width:27px;padding:0;border:1px solid #ced9d1;background:#eff5f0;color:#315c4a;font-size:15px;font-weight:800;line-height:17px;cursor:pointer}.parcel-step-btn:first-child{border-radius:0 7px 0 0;border-bottom:0}.parcel-step-btn:last-child{border-radius:0 0 7px 0}.parcel-step-btn:hover{background:#dcebdd}.parcel-step-btn:focus-visible{outline:2px solid #315c4a;outline-offset:1px}
 
 .order-photo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(115px,1fr));gap:10px}.order-photo-item{padding:8px;border:1px solid #dce7de;border-radius:10px;min-width:0}.order-photo-item img{display:block;width:100%;height:100px;object-fit:cover;border-radius:6px}.order-photo-item .photo-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:7px 0}.order-photo-item button{padding:6px 9px;min-height:30px}.modalbox{width:min(850px,100%)}
 
@@ -419,14 +419,14 @@ async function renderParcelEditor(){
  const heads=parcelFields.map(([,label])=>'<th>'+label+'</th>').join('');
  const rows=orders.map(o=>{
   const d=detail[o.id]||{};
-  const boxes=parcelFields.map(([key,label])=>'<td><input class="parcel-qty-input" type="number" inputmode="numeric" min="0" max="1000" step="1" id="parcel-'+key+'-'+o.id+'" aria-label="'+esc(o.order_no+' '+label)+'" value="'+esc(d[key]??0)+'"></td>').join('');
+  const boxes=parcelFields.map(([key,label])=>'<td><div class="parcel-number-control"><input class="parcel-qty-input" type="number" inputmode="numeric" min="0" max="1000" step="1" id="parcel-'+key+'-'+o.id+'" aria-label="'+esc(o.order_no+' '+label)+'" value="'+esc(d[key]??0)+'"><span class="parcel-step-stack"><button type="button" class="parcel-step-btn" data-id="'+o.id+'" data-key="'+key+'" aria-label="'+esc(o.order_no+' '+label+' 1개 증가')+'" onclick="stepParcelBox(this.dataset.id,this.dataset.key,1)">+</button><button type="button" class="parcel-step-btn" data-id="'+o.id+'" data-key="'+key+'" aria-label="'+esc(o.order_no+' '+label+' 1개 감소')+'" onclick="stepParcelBox(this.dataset.id,this.dataset.key,-1)">−</button></span></div></td>').join('');
   return '<tr><td><div class="parcel-order-number"><b>'+esc(o.order_no)+'</b><button type="button" class="parcel-photo-btn" data-id="'+o.id+'" title="송장 입력 전에도 사진 첨부 가능" aria-label="'+esc(o.order_no)+' 주문 사진 첨부" onclick="openOrderPhotoManager(this.dataset.id)">사진 +</button></div></td><td>'+esc(o.ship_date||'')+'</td><td>'+esc(o.manager_name||o.customer_name||'')+'</td>'
    +'<td><input class="parcel-track-input" id="parcel-track-'+o.id+'" aria-label="'+esc(o.order_no+' 송장번호')+'" placeholder="쉼표로 여러 개 입력" maxlength="1000" value="'+esc(d.tracking_numbers||'')+'"></td>'
    +boxes+'<td><button class="btn primary" id="parcel-save-'+o.id+'" data-id="'+o.id+'" onclick="saveInlineParcel(this.dataset.id)">저장</button></td>'
    +'</tr>';
  }).join('');
  page.innerHTML='<div class="top"><div><h1>송장·포장박스</h1><div class="muted">주문번호 옆 사진 +로 송장 입력 전에도 사진을 첨부할 수 있습니다. 입력 후 해당 행의 저장을 누르세요.</div></div><div class="toolbar"><button class="btn secondary" onclick="renderParcelEditor()">새로고침</button><button class="btn primary" onclick="exportParcelDetails()">송장·박스 엑셀 다운로드</button></div></div>'
-  +'<div class="panel"><p class="muted">송장번호 여러 개는 쉼표(,)로 구분합니다. 저장된 출고정보만 엑셀로 내려받습니다. 변경 후 먼저 저장하세요.</p>'
+  +'<div class="panel"><p class="muted">박스 수량은 입력칸 오른쪽 위 + / 아래 − 버튼으로 1개씩 조절할 수 있습니다. 송장번호는 쉼표(,)로 구분합니다. 변경 후 행별 저장을 눌러야 엑셀에 반영됩니다.</p>'
   +'<div class="tablewrap"><table class="table parcel-table"><thead><tr><th>주문번호</th><th>발송일</th><th>수령인</th><th>송장번호</th>'+heads+'<th>저장</th></tr></thead><tbody>'
   +(rows||'<tr><td colspan="10"><div class="empty">주문이 없습니다.</div></td></tr>')+'</tbody></table></div></div>';
 }
@@ -471,6 +471,18 @@ function exportParcelDetails(){
  XLSX.writeFile(workbook,'이로운과자점_송장포장박스.xlsx');
 }
 
+function stepParcelBox(orderId,key,step){
+ if(!parcelFields.some(([field])=>field===key)||parcelBusy.has(orderId))return;
+ const field=$('parcel-'+key+'-'+orderId);
+ if(!field)return;
+ const raw=field.value.trim();
+ if(!/^\d+$/.test(raw))return toast('박스 수량은 0~1000의 정수로 입력해주세요.');
+ const value=Number(raw);
+ if(!Number.isSafeInteger(value)||value<0||value>1000)return toast('박스 수량은 0~1000의 정수로 입력해주세요.');
+ const next=value+step;
+ if(next<0||next>1000)return toast('박스 수량은 0~1000개까지 입력할 수 있습니다.');
+ field.value=String(next);
+}
 async function saveInlineParcel(id){
  if(parcelBusy.has(id))return;
  const order=state.orders.find(x=>x.id===id);
