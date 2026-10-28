@@ -19,6 +19,7 @@
 .order-photo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(115px,1fr));gap:10px}.order-photo-item{padding:8px;border:1px solid #dce7de;border-radius:10px;min-width:0}.order-photo-item img{display:block;width:100%;height:100px;object-fit:cover;border-radius:6px}.order-photo-item .photo-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:7px 0}.order-photo-item button{padding:6px 9px;min-height:30px}.modalbox{width:min(850px,100%)}
 
 .parcel-order-number{display:flex;align-items:center;gap:7px;white-space:nowrap}.parcel-photo-btn{border:1px solid #cbdcd0;background:#f0f7f2;color:#315c4a;border-radius:6px;font:700 11px/1.2 inherit;padding:5px 6px;min-width:45px;cursor:pointer}.parcel-photo-btn:hover{background:#dceee3}.parcel-photo-btn:focus-visible{outline:2px solid #315c4a;outline-offset:2px}
+.parcel-photo-count{font-size:11px;font-weight:700;white-space:nowrap;color:#5f7065;min-width:28px;text-align:center}
 </style>
 </head>
 <body><div role="status" style="position:sticky;top:0;z-index:1000;padding:10px 14px;background:#e8f4ee;color:#24563b;border-bottom:1px solid #c7e4d2;text-align:center;font:700 13px/1.45 system-ui,-apple-system,sans-serif">테스트 전용 · 실제 주문/출고 금지 · 운영 데이터와 분리된 검증용 서버에 연결됩니다.</div>
@@ -210,6 +211,7 @@ async function uploadOrderPhotos(orderId){
  finally{
   photoBusy.delete(orderId);input.disabled=false;button.disabled=false;button.textContent='사진 올리기';input.value='';
   await loadOrderPhotos(orderId);
+  if(state.page==='parcel')void refreshParcelPhotoCounts();
  }
 }
 async function removeOrderPhoto(photoId,orderId){
@@ -222,6 +224,7 @@ async function removeOrderPhoto(photoId,orderId){
  if(deleteError)return toast('사진 정보 삭제 실패: '+deleteError.message);
  toast('사진을 삭제했습니다.');
  loadOrderPhotos(orderId);
+ if(state.page==='parcel')void refreshParcelPhotoCounts();
 }
 
 async function shipOrder(id){try{const {data,error}=await db.rpc('ship_order_v2',{p_order_id:id});if(error)throw error;toast('출고완료 및 재고 차감이 처리되었습니다.');closeModal();await init();route('orders')}catch(e){toast('출고 처리 실패: '+(e.message||e))}}
@@ -420,7 +423,7 @@ async function renderParcelEditor(){
  const rows=orders.map(o=>{
   const d=detail[o.id]||{};
   const boxes=parcelFields.map(([key,label])=>'<td><div class="parcel-number-control"><input class="parcel-qty-input" type="number" inputmode="numeric" min="0" max="1000" step="1" id="parcel-'+key+'-'+o.id+'" aria-label="'+esc(o.order_no+' '+label)+'" value="'+esc(d[key]??0)+'"><span class="parcel-step-stack"><button type="button" class="parcel-step-btn" data-id="'+o.id+'" data-key="'+key+'" aria-label="'+esc(o.order_no+' '+label+' 1개 증가')+'" onclick="stepParcelBox(this.dataset.id,this.dataset.key,1)">+</button><button type="button" class="parcel-step-btn" data-id="'+o.id+'" data-key="'+key+'" aria-label="'+esc(o.order_no+' '+label+' 1개 감소')+'" onclick="stepParcelBox(this.dataset.id,this.dataset.key,-1)">−</button></span></div></td>').join('');
-  return '<tr><td><div class="parcel-order-number"><b>'+esc(o.order_no)+'</b><button type="button" class="parcel-photo-btn" data-id="'+o.id+'" title="송장 입력 전에도 사진 첨부 가능" aria-label="'+esc(o.order_no)+' 주문 사진 첨부" onclick="openOrderPhotoManager(this.dataset.id)">사진 +</button></div></td><td>'+esc(o.ship_date||'')+'</td><td>'+esc(o.manager_name||o.customer_name||'')+'</td>'
+  return '<tr><td><div class="parcel-order-number"><b>'+esc(o.order_no)+'</b><button type="button" class="parcel-photo-btn" data-id="'+o.id+'" title="송장 입력 전에도 사진 첨부 가능" aria-label="'+esc(o.order_no)+' 주문 사진 첨부" onclick="openOrderPhotoManager(this.dataset.id)">사진 +</button><span class="parcel-photo-count" id="parcel-photo-count-'+o.id+'" aria-label="첨부사진 수">확인 중</span></div></td><td>'+esc(o.ship_date||'')+'</td><td>'+esc(o.manager_name||o.customer_name||'')+'</td>'
    +'<td><input class="parcel-track-input" id="parcel-track-'+o.id+'" aria-label="'+esc(o.order_no+' 송장번호')+'" placeholder="쉼표로 여러 개 입력" maxlength="1000" value="'+esc(d.tracking_numbers||'')+'"></td>'
    +boxes+'<td><button class="btn primary" id="parcel-save-'+o.id+'" data-id="'+o.id+'" onclick="saveInlineParcel(this.dataset.id)">저장</button></td>'
    +'</tr>';
@@ -429,6 +432,37 @@ async function renderParcelEditor(){
   +'<div class="panel"><p class="muted">박스 수량은 입력칸 오른쪽 위 + / 아래 − 버튼으로 1개씩 조절할 수 있습니다. 송장번호는 쉼표(,)로 구분합니다. 변경 후 행별 저장을 눌러야 엑셀에 반영됩니다.</p>'
   +'<div class="tablewrap"><table class="table parcel-table"><thead><tr><th>주문번호</th><th>발송일</th><th>수령인</th><th>송장번호</th>'+heads+'<th>저장</th></tr></thead><tbody>'
   +(rows||'<tr><td colspan="10"><div class="empty">주문이 없습니다.</div></td></tr>')+'</tbody></table></div></div>';
+ if(orders.length)void refreshParcelPhotoCounts(orders);
+}
+
+
+async function refreshParcelPhotoCounts(orders=photoExportOrders()){
+ if(state.page!=='parcel'||!orders.length)return;
+ const ids=orders.map(o=>o.id);
+ const countMap=new Map(ids.map(id=>[id,0]));
+ try{
+  for(let i=0;i<ids.length;i+=50){
+   const batch=ids.slice(i,i+50);
+   for(let page=0;;page++){
+    const {data,error}=await db.from('order_photos').select('order_id').in('order_id',batch).range(page*500,page*500+499);
+    if(error)throw error;
+    for(const photo of data||[])countMap.set(photo.order_id,(countMap.get(photo.order_id)||0)+1);
+    if(!data||data.length<500)break;
+   }
+  }
+  if(state.page!=='parcel')return;
+  for(const [id,n] of countMap){
+   const label=$('parcel-photo-count-'+id);
+   if(label)label.textContent=n+'장';
+  }
+ }catch(e){
+  if(state.page!=='parcel')return;
+  for(const id of ids){
+   const label=$('parcel-photo-count-'+id);
+   if(label)label.textContent='조회 실패';
+  }
+  toast('첨부사진 수 조회 실패: '+(e.message||e));
+ }
 }
 
 function openOrderPhotoManager(id){
