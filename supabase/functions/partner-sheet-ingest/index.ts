@@ -30,16 +30,9 @@ Deno.serve(async(req:Request)=>{
    p_sheet_id:sheet_id,p_token_hash:digest,p_rows:rows
   });
   if(ingestErr)return json({ok:false,error:"sync denied or invalid data"},403);
-  // Process only sheet owner-updated admin columns, never use these values to create new orders.
-  const parcels=rows.filter(r=>
-   String(r?.tracking_numbers||"").trim() ||
-   ["ice_small","ice_medium","ice_large","paper_medium","paper_large"].some(k=>Number(r?.[k]||0)>0));
-  if(parcels.length){
-   const {error:parcelErr}=await db.rpc("partner_sheet_apply_parcels",{
-    p_sheet_id:sheet_id,p_token_hash:digest,p_parcels:parcels
-   });
-   if(parcelErr)return json({ok:false,error:"box/tracking sync failed"},422);
-  }
+  // Shipping and photos are managed in the administrator DB only.
+  // Never write sheet I:O values back to order_shipping_details: this would undo admin edits.
+  // The read-only status response contains the per-order tracking, boxes, and photo count.
   const {data:status,error:statusErr}=await db.rpc("partner_sheet_status",{
    p_sheet_id:sheet_id,p_token_hash:digest
   });
