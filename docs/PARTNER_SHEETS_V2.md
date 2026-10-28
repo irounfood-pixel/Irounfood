@@ -22,7 +22,7 @@
 - 거래처 시트 템플릿: https://docs.google.com/spreadsheets/d/1pl9SbXQVOZu2iuNrzG30gkjYlsnGH1Rm1vBd8eF85bw/edit
 
 ## 활성화 전 순서 (아직 진행하지 않음)
-1. 테스트 Supabase 프로젝트 `bgswafqssdmktnmyyqef` 활성 상태 확인. 현재 INACTIVE이므로 실제 기능 테스트 불가
+1. 테스트 Supabase 프로젝트 `bgswafqssdmktnmyyqef` 활성 상태 확인. 2026-10-28 복구 완료(ACTIVE_HEALTHY). 기초 DB 검증 완료
 2. 테스트 DB에서 검토용 SQL 적용 후 테이블·RLS·관리자 승인/재승인/반려/송장 업데이트 트랜잭션 검증
 3. 테스트 Edge Function `partner-sheet-ingest` 배포. 인증은 백엔드 서비스 키 + 거래처별 암호화 토큰 해시로 제한
 4. 거래처 템플릿을 복사하여 독립 시트 파일 생성(고객 PII 없이). 테스트 거래처 계정만 편집자로 공유
@@ -55,3 +55,19 @@
 - [ ] 송장번호 N개와 박스 5종 값 보존, 재동기화 때 중복 생성 없음
 - [ ] 새 시트가 없거나 인증키가 틀리면 기존 운영 주문 데이터 영향 없음
 - [ ] Google Sheets·Apps Script 모바일 호환성 별도 확인
+
+## 2026-10-28 테스트 진행 결과 (테스트 프로젝트 한정)
+- [x] `bgswafqssdmktnmyyqef` 복구 — `ACTIVE_HEALTHY` 확인
+- [x] 중복·손상된 SQL 정리: 75,770자 → 15,453자, 6개 RPC 검사
+- [x] `partner_sheet_v2_review_fixed_20261028` 테스트 마이그레이션 적용 성공
+- [x] 신규 테이블 4개 및 RLS, 익명 조회·RPC 실행 차단 권한 확인
+- [x] `partner-sheet-ingest` Edge Function 테스트 프로젝트에 배포(ACTIVE), 사용자 토큰 방식이라 JWT 검증 비활성화하되 함수 내 비밀 토큰 검증 적용
+- [x] 테스트 DB에 운영 `create_admin_order_v2` 함수 정의만 복제(주문 데이터 미복제)
+- [x] 순수 SQL 테스트: 최초 접수, 동일 UID 재전송, 승인 대기 변경, 승인 후 변경 차단, 잘못된 토큰 거부
+- [x] 순수 SQL 테스트: 두 상품 행을 하나의 주문으로 승인, 재승인 차단, 5종 박스/쉼표 송장번호 저장 및 갱신, 거래처별 상태 조회
+- [x] 테스트용 DML은 `BEGIN ... ROLLBACK` 실행으로 취소; 운영 DB에 대한 DML/DDL 없음
+- [ ] 실사용 Google Sheets → Apps Script 트리거 → Edge Function HTTP → 테스트 DB 종단 간 테스트 (아직 미설치)
+- [ ] 고객별 실제 공유 권한 점검, 관리자 I~N 보호 및 엑셀 UI 실제 검증
+- [ ] 운영 배포 / `main` 병합 (미실시)
+
+**주의:** DB/RPC SQL 단위 검증은 완료되었으나 Google Apps Script 직접 연동, 트리거 실행 권한, 실제 웹 관리자 로그인과 브라우저 상의 주문 승인은 아직 검증하지 않았습니다. 거래처용 템플릿은 공유 전 상태로 유지합니다. 거래처 파일에 관리자 동기화 토큰을 넣지 마세요.
