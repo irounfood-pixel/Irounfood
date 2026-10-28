@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS public.partner_order_rows (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   sheet_id text NOT NULL REFERENCES public.partner_sheet_sources(sheet_id),
   source_row integer NOT NULL CHECK (source_row BETWEEN 2 AND 20000),
+  source_uid uuid NOT NULL,
   content_hash text NOT NULL,
   order_date date NOT NULL,
   ship_date date NOT NULL,
@@ -28,7 +29,7 @@ CREATE TABLE IF NOT EXISTS public.partner_order_rows (
   approved_order_id uuid REFERENCES public.orders(id),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE(sheet_id,source_row)
+  UNIQUE(sheet_id,source_uid)
 );
 CREATE INDEX IF NOT EXISTS partner_order_rows_status_idx ON public.partner_order_rows(status,ship_date);
 CREATE TABLE IF NOT EXISTS public.order_shipping_details (
@@ -58,7 +59,7 @@ CREATE POLICY shipping_admin_read ON public.order_shipping_details FOR SELECT TO
 CREATE OR REPLACE FUNCTION public.partner_sheet_ingest(p_sheet_id text,p_token_hash text,p_rows jsonb)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
 AS $$
-DECLARE v_row jsonb; v_idx int; v_n int:=0; v_conflict int:=0;
+DECLARE v_row jsonb; v_idx int; v_uid uuid; v_n int:=0; v_conflict int:=0;
  v_date date; v_ship date; v_qty int; v_hash text; v_old public.partner_order_rows%rowtype;
  v_source public.partner_sheet_sources%rowtype;
 BEGIN
@@ -71,7 +72,7 @@ BEGIN
    RAISE EXCEPTION '입력 행 배열이 올바르지 않습니다.';
  END IF;
  FOR v_row IN SELECT value FROM jsonb_array_elements(p_rows) LOOP
-   IF jsonb_typeof(v_row)<>'object' OR (v_row->>'source_row') !~ '^[0-9]{1,5}$' THEN CONTINUE; END IF;
+   IF jsonb_typeof(v_row)<>'object' OR (v_row->>'source_row') !~ '^[0-9]{1,5}
    v_idx:=(v_row->>'source_row')::integer;
    IF v_idx<2 OR v_idx>20000 THEN CONTINUE; END IF;
    IF (v_row->>'quantity') !~ '^[0-9]{1,4}$' THEN CONTINUE; END IF;
@@ -92,20 +93,23 @@ BEGIN
        v_qty::text,trim(v_row->>'recipient'),trim(v_row->>'contact'),
        trim(v_row->>'address'),coalesce(v_row->>'note','')));
    SELECT * INTO v_old FROM public.partner_order_rows
-      WHERE sheet_id=p_sheet_id AND source_row=v_idx FOR UPDATE;
+      WHERE sheet_id=p_sheet_id AND source_uid=v_uid FOR UPDATE;
    IF FOUND AND v_old.status='승인' THEN
      IF v_old.content_hash<>v_hash THEN v_conflict:=v_conflict+1; END IF;
-     -- 승인된 원본은 수정 불가, 송장/박스 정보는 별도 관리자 기능으로 입력
+     -- 승인된 원본은 수정 불가, 다만 시트에서 행이 이동한 경우 위치만 갱신
+     IF v_old.source_row<>v_idx THEN
+       UPDATE public.partner_order_rows SET source_row=v_idx WHERE id=v_old.id;
+     END IF;
      CONTINUE;
    END IF;
    IF FOUND AND v_old.status='반려' THEN CONTINUE; END IF;
-   INSERT INTO public.partner_order_rows(sheet_id,source_row,content_hash,order_date,ship_date,
+   INSERT INTO public.partner_order_rows(sheet_id,source_row,source_uid,content_hash,order_date,ship_date,
      product_name,quantity,recipient,contact,address,note)
-   VALUES (p_sheet_id,v_idx,v_hash,v_date,v_ship,trim(v_row->>'product_name'),
+   VALUES (p_sheet_id,v_idx,v_uid,v_hash,v_date,v_ship,trim(v_row->>'product_name'),
      v_qty,trim(v_row->>'recipient'),trim(v_row->>'contact'),trim(v_row->>'address'),
      coalesce(v_row->>'note',''))
-   ON CONFLICT(sheet_id,source_row) DO UPDATE SET
-     content_hash=excluded.content_hash,order_date=excluded.order_date,
+   ON CONFLICT(sheet_id,source_uid) DO UPDATE SET
+     source_row=excluded.source_row,content_hash=excluded.content_hash,order_date=excluded.order_date,
      ship_date=excluded.ship_date,product_name=excluded.product_name,
      quantity=excluded.quantity,recipient=excluded.recipient,contact=excluded.contact,
      address=excluded.address,note=excluded.note,updated_at=now()
@@ -208,7 +212,202 @@ BEGIN
  JOIN public.partner_sheet_sources s USING(sheet_id)
  WHERE t.sheet_id=p_sheet_id AND t.enabled AND s.enabled AND t.token_hash=p_token_hash)
  THEN RAISE EXCEPTION '시트 연동 인증에 실패했습니다.'; END IF;
- SELECT coalesce(jsonb_agg(jsonb_build_object('id',r.id,'source_row',r.source_row,
+ SELECT coalesce(jsonb_agg(jsonb_build_object('id',r.id,'source_row',r.source_row,'source_uid',r.source_uid,
+ 'ship_date',r.ship_date,'recipient',r.recipient,'status',r.status,
+ 'updated_at',r.updated_at,'approved_order_id',r.approved_order_id)
+ ORDER BY r.source_row),'[]'::jsonb) INTO v_result
+ FROM public.partner_order_rows r WHERE r.sheet_id=p_sheet_id;
+ RETURN v_result;
+END $$;
+REVOKE ALL ON FUNCTION public.partner_sheet_status(text,text) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.partner_sheet_status(text,text) TO service_role;
+
+-- 시트 관리자 입력 열(I~N) 업데이트. 한 주문에 여러 상품 행이 있어도 한 번만 처리합니다.
+CREATE OR REPLACE FUNCTION public.partner_sheet_apply_parcels(
+ p_sheet_id text,p_token_hash text,p_parcels jsonb)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $$
+DECLARE v_p jsonb; v_row public.partner_order_rows%rowtype; v_done uuid[]:=ARRAY[]::uuid[];
+ v_i int; v_m int; v_l int; v_pm int; v_pl int; v_n int:=0; v_tracking text;
+BEGIN
+ IF NOT EXISTS(SELECT 1 FROM private.partner_sheet_tokens t
+ JOIN public.partner_sheet_sources s USING(sheet_id)
+ WHERE t.sheet_id=p_sheet_id AND t.enabled AND s.enabled AND t.token_hash=p_token_hash)
+ THEN RAISE EXCEPTION '시트 연동 인증에 실패했습니다.'; END IF;
+ IF jsonb_typeof(p_parcels)<>'array' OR jsonb_array_length(p_parcels)>500
+ THEN RAISE EXCEPTION '송장정보 배열이 올바르지 않습니다.'; END IF;
+ FOR v_p IN SELECT value FROM jsonb_array_elements(p_parcels) LOOP
+   IF (v_p->>'source_uid') !~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}
+   SELECT * INTO v_row FROM public.partner_order_rows
+    WHERE sheet_id=p_sheet_id AND source_uid=(v_p->>'source_uid')::uuid AND status='승인';
+   IF NOT FOUND OR v_row.approved_order_id IS NULL OR v_row.approved_order_id=ANY(v_done)
+   THEN CONTINUE; END IF;
+   IF (v_p->>'ice_small') !~ '^[0-9]{1,4}$' OR
+      (v_p->>'ice_medium') !~ '^[0-9]{1,4}$' OR
+      (v_p->>'ice_large') !~ '^[0-9]{1,4}$' OR
+      (v_p->>'paper_medium') !~ '^[0-9]{1,4}$' OR
+      (v_p->>'paper_large') !~ '^[0-9]{1,4}$'
+   THEN CONTINUE; END IF;
+   v_tracking:=left(coalesce(trim(v_p->>'tracking_numbers'),''),1000);
+   v_i:=(v_p->>'ice_small')::int; v_m:=(v_p->>'ice_medium')::int;
+   v_l:=(v_p->>'ice_large')::int; v_pm:=(v_p->>'paper_medium')::int;
+   v_pl:=(v_p->>'paper_large')::int;
+   IF v_tracking='' AND greatest(v_i,v_m,v_l,v_pm,v_pl)=0 THEN CONTINUE; END IF;
+   INSERT INTO public.order_shipping_details(order_id,tracking_numbers,ice_small,ice_medium,
+     ice_large,paper_medium,paper_large)
+   VALUES(v_row.approved_order_id,v_tracking,v_i,v_m,v_l,v_pm,v_pl)
+   ON CONFLICT(order_id) DO UPDATE SET tracking_numbers=excluded.tracking_numbers,
+    ice_small=excluded.ice_small,ice_medium=excluded.ice_medium,ice_large=excluded.ice_large,
+    paper_medium=excluded.paper_medium,paper_large=excluded.paper_large,updated_at=now();
+   v_done:=array_append(v_done,v_row.approved_order_id);
+   v_n:=v_n+1;
+ END LOOP;
+ RETURN v_n;
+END $$;
+REVOKE ALL ON FUNCTION public.partner_sheet_apply_parcels(text,text,jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.partner_sheet_apply_parcels(text,text,jsonb) TO service_role;
+
+      OR (v_row->>'source_uid') !~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}
+   v_idx:=(v_row->>'source_row')::integer;
+   IF v_idx<2 OR v_idx>20000 THEN CONTINUE; END IF;
+   IF (v_row->>'quantity') !~ '^[0-9]{1,4}$' THEN CONTINUE; END IF;
+   v_qty:=(v_row->>'quantity')::integer;
+   IF v_qty<1 OR v_qty>1000 THEN CONTINUE; END IF;
+   IF (v_row->>'order_date') !~ '^\d{4}-\d{2}-\d{2}$'
+      OR (v_row->>'ship_date') !~ '^\d{4}-\d{2}-\d{2}$'
+      OR nullif(trim(v_row->>'product_name'),'') IS NULL
+      OR nullif(trim(v_row->>'recipient'),'') IS NULL
+      OR nullif(trim(v_row->>'contact'),'') IS NULL
+      OR nullif(trim(v_row->>'address'),'') IS NULL THEN CONTINUE; END IF;
+   BEGIN
+    v_date:=(v_row->>'order_date')::date;
+    v_ship:=(v_row->>'ship_date')::date;
+   EXCEPTION WHEN others THEN CONTINUE; END;
+   IF NOT EXISTS(SELECT 1 FROM public.products WHERE active=true AND name=trim(v_row->>'product_name')) THEN CONTINUE; END IF;
+   v_hash:=md5(concat_ws(chr(31),v_date::text,v_ship::text,trim(v_row->>'product_name'),
+       v_qty::text,trim(v_row->>'recipient'),trim(v_row->>'contact'),
+       trim(v_row->>'address'),coalesce(v_row->>'note','')));
+   SELECT * INTO v_old FROM public.partner_order_rows
+      WHERE sheet_id=p_sheet_id AND source_uid=v_uid FOR UPDATE;
+   IF FOUND AND v_old.status='승인' THEN
+     IF v_old.content_hash<>v_hash THEN v_conflict:=v_conflict+1; END IF;
+     -- 승인된 원본은 수정 불가, 다만 시트에서 행이 이동한 경우 위치만 갱신
+     IF v_old.source_row<>v_idx THEN
+       UPDATE public.partner_order_rows SET source_row=v_idx WHERE id=v_old.id;
+     END IF;
+     CONTINUE;
+   END IF;
+   IF FOUND AND v_old.status='반려' THEN CONTINUE; END IF;
+   INSERT INTO public.partner_order_rows(sheet_id,source_row,source_uid,content_hash,order_date,ship_date,
+     product_name,quantity,recipient,contact,address,note)
+   VALUES (p_sheet_id,v_idx,v_uid,v_hash,v_date,v_ship,trim(v_row->>'product_name'),
+     v_qty,trim(v_row->>'recipient'),trim(v_row->>'contact'),trim(v_row->>'address'),
+     coalesce(v_row->>'note',''))
+   ON CONFLICT(sheet_id,source_uid) DO UPDATE SET
+     source_row=excluded.source_row,content_hash=excluded.content_hash,order_date=excluded.order_date,
+     ship_date=excluded.ship_date,product_name=excluded.product_name,
+     quantity=excluded.quantity,recipient=excluded.recipient,contact=excluded.contact,
+     address=excluded.address,note=excluded.note,updated_at=now()
+   WHERE public.partner_order_rows.status='승인대기'
+     AND public.partner_order_rows.content_hash IS DISTINCT FROM excluded.content_hash;
+   v_n:=v_n+1;
+ END LOOP;
+ RETURN jsonb_build_object('ok',true,'processed_rows',v_n,'approved_changed_conflicts',v_conflict);
+END $$;
+REVOKE ALL ON FUNCTION public.partner_sheet_ingest(text,text,jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.partner_sheet_ingest(text,text,jsonb) TO service_role;
+
+-- 선택한 행들을 관리자 검토 후 단일 정식 주문으로 등록. 함수 전체가 원자적으로 처리됩니다.
+CREATE OR REPLACE FUNCTION public.approve_partner_sheet_rows(p_row_ids uuid[])
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $$
+DECLARE v_first public.partner_order_rows%rowtype; v_count int; v_items jsonb;
+ v_partner text; v_order_id uuid; v_all int;
+BEGIN
+ IF NOT private.is_admin() THEN RAISE EXCEPTION '관리자 권한이 필요합니다.'; END IF;
+ v_count:=coalesce(array_length(p_row_ids,1),0);
+ IF v_count<1 OR v_count>100 OR v_count<>(SELECT count(DISTINCT id) FROM unnest(p_row_ids) x(id)) THEN
+  RAISE EXCEPTION '승인할 행을 1~100개 선택하세요 (중복 불가).';
+ END IF;
+ SELECT r.* INTO v_first FROM public.partner_order_rows r
+ WHERE r.id=ANY(p_row_ids) ORDER BY r.id LIMIT 1 FOR UPDATE;
+ IF NOT FOUND THEN RAISE EXCEPTION '승인할 주문을 찾을 수 없습니다.'; END IF;
+ SELECT count(*) INTO v_all FROM public.partner_order_rows r WHERE r.id=ANY(p_row_ids)
+ AND r.status='승인대기' AND r.sheet_id=v_first.sheet_id
+ AND r.order_date=v_first.order_date AND r.ship_date=v_first.ship_date
+ AND r.recipient=v_first.recipient AND r.contact=v_first.contact AND r.address=v_first.address;
+ -- 동시 승인 경합 방지를 위해 모든 행을 잠근 다음 상태를 재검증합니다.
+ PERFORM 1 FROM public.partner_order_rows r WHERE r.id=ANY(p_row_ids) ORDER BY r.id FOR UPDATE;
+ SELECT count(*) INTO v_all FROM public.partner_order_rows r WHERE r.id=ANY(p_row_ids)
+ AND r.status='승인대기' AND r.sheet_id=v_first.sheet_id
+ AND r.order_date=v_first.order_date AND r.ship_date=v_first.ship_date
+ AND r.recipient=v_first.recipient AND r.contact=v_first.contact AND r.address=v_first.address;
+ IF v_all<>v_count THEN RAISE EXCEPTION '서로 다른 주문 또는 이미 처리한 행이 포함됐습니다.'; END IF;
+ SELECT partner_name INTO v_partner FROM public.partner_sheet_sources WHERE sheet_id=v_first.sheet_id;
+ SELECT jsonb_agg(jsonb_build_object('product_id',p.id,'quantity',r.quantity) ORDER BY r.source_row)
+ INTO v_items FROM public.partner_order_rows r
+ JOIN public.products p ON p.name=r.product_name AND p.active=true
+ WHERE r.id=ANY(p_row_ids);
+ IF jsonb_array_length(coalesce(v_items,'[]'::jsonb))<>v_count THEN
+    RAISE EXCEPTION '상품 목록을 확인해주세요.'; END IF;
+ v_order_id:=public.create_admin_order_v2(v_first.order_date,v_partner,v_first.recipient,
+   v_first.contact,v_first.ship_date,'거래처시트',v_first.address,'택배',
+   (SELECT nullif(string_agg(DISTINCT nullif(trim(note),''),' / '),'') FROM public.partner_order_rows
+    WHERE id=ANY(p_row_ids)),v_items);
+ UPDATE public.partner_order_rows SET status='승인',approved_order_id=v_order_id,updated_at=now()
+ WHERE id=ANY(p_row_ids);
+ RETURN v_order_id;
+END $$;
+REVOKE ALL ON FUNCTION public.approve_partner_sheet_rows(uuid[]) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.approve_partner_sheet_rows(uuid[]) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.reject_partner_sheet_rows(p_row_ids uuid[])
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $$
+DECLARE v_n integer;
+BEGIN
+ IF NOT private.is_admin() THEN RAISE EXCEPTION '관리자 권한이 필요합니다.'; END IF;
+ UPDATE public.partner_order_rows SET status='반려',updated_at=now()
+ WHERE id=ANY(p_row_ids) AND status='승인대기';
+ GET DIAGNOSTICS v_n=ROW_COUNT;
+ RETURN v_n;
+END $$;
+REVOKE ALL ON FUNCTION public.reject_partner_sheet_rows(uuid[]) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.reject_partner_sheet_rows(uuid[]) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.admin_save_order_shipping(p_order_id uuid,p_tracking text,
+ p_ice_small int,p_ice_medium int,p_ice_large int,p_paper_medium int,p_paper_large int)
+RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $$
+BEGIN
+ IF NOT private.is_admin() THEN RAISE EXCEPTION '관리자 권한이 필요합니다.'; END IF;
+ IF NOT EXISTS(SELECT 1 FROM public.orders WHERE id=p_order_id) THEN RAISE EXCEPTION '주문 없음'; END IF;
+ IF least(p_ice_small,p_ice_medium,p_ice_large,p_paper_medium,p_paper_large)<0 THEN
+ RAISE EXCEPTION '박스 수량은 음수일 수 없습니다.'; END IF;
+ INSERT INTO public.order_shipping_details(order_id,tracking_numbers,ice_small,ice_medium,
+ ice_large,paper_medium,paper_large)
+ VALUES (p_order_id,coalesce(trim(p_tracking),''),p_ice_small,p_ice_medium,
+ p_ice_large,p_paper_medium,p_paper_large)
+ ON CONFLICT(order_id) DO UPDATE SET tracking_numbers=excluded.tracking_numbers,
+ ice_small=excluded.ice_small,ice_medium=excluded.ice_medium,ice_large=excluded.ice_large,
+ paper_medium=excluded.paper_medium,paper_large=excluded.paper_large,updated_at=now();
+ RETURN true;
+END $$;
+REVOKE ALL ON FUNCTION public.admin_save_order_shipping(uuid,text,int,int,int,int,int) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.admin_save_order_shipping(uuid,text,int,int,int,int,int) TO authenticated;
+
+
+-- 거래처별 접수 현황. 해당 시트의 행만 반환합니다.
+CREATE OR REPLACE FUNCTION public.partner_sheet_status(p_sheet_id text,p_token_hash text)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $$
+DECLARE v_result jsonb;
+BEGIN
+ IF NOT EXISTS(SELECT 1 FROM private.partner_sheet_tokens t
+ JOIN public.partner_sheet_sources s USING(sheet_id)
+ WHERE t.sheet_id=p_sheet_id AND t.enabled AND s.enabled AND t.token_hash=p_token_hash)
+ THEN RAISE EXCEPTION '시트 연동 인증에 실패했습니다.'; END IF;
+ SELECT coalesce(jsonb_agg(jsonb_build_object('id',r.id,'source_row',r.source_row,'source_uid',r.source_uid,
  'ship_date',r.ship_date,'recipient',r.recipient,'status',r.status,
  'updated_at',r.updated_at,'approved_order_id',r.approved_order_id)
  ORDER BY r.source_row),'[]'::jsonb) INTO v_result
@@ -235,7 +434,874 @@ BEGIN
  FOR v_p IN SELECT value FROM jsonb_array_elements(p_parcels) LOOP
    IF (v_p->>'source_row') !~ '^[0-9]{1,5}$' THEN CONTINUE; END IF;
    SELECT * INTO v_row FROM public.partner_order_rows
-    WHERE sheet_id=p_sheet_id AND source_row=(v_p->>'source_row')::int AND status='승인';
+    WHERE sheet_id=p_sheet_id AND source_uid=(v_p->>'source_uid')::uuid AND status='승인';
+   IF NOT FOUND OR v_row.approved_order_id IS NULL OR v_row.approved_order_id=ANY(v_done)
+   THEN CONTINUE; END IF;
+   IF (v_p->>'ice_small') !~ '^[0-9]{1,4}$' OR
+      (v_p->>'ice_medium') !~ '^[0-9]{1,4}$' OR
+      (v_p->>'ice_large') !~ '^[0-9]{1,4}$' OR
+      (v_p->>'paper_medium') !~ '^[0-9]{1,4}$' OR
+      (v_p->>'paper_large') !~ '^[0-9]{1,4}$'
+   THEN CONTINUE; END IF;
+   v_tracking:=left(coalesce(trim(v_p->>'tracking_numbers'),''),1000);
+   v_i:=(v_p->>'ice_small')::int; v_m:=(v_p->>'ice_medium')::int;
+   v_l:=(v_p->>'ice_large')::int; v_pm:=(v_p->>'paper_medium')::int;
+   v_pl:=(v_p->>'paper_large')::int;
+   IF v_tracking='' AND greatest(v_i,v_m,v_l,v_pm,v_pl)=0 THEN CONTINUE; END IF;
+   INSERT INTO public.order_shipping_details(order_id,tracking_numbers,ice_small,ice_medium,
+     ice_large,paper_medium,paper_large)
+   VALUES(v_row.approved_order_id,v_tracking,v_i,v_m,v_l,v_pm,v_pl)
+   ON CONFLICT(order_id) DO UPDATE SET tracking_numbers=excluded.tracking_numbers,
+    ice_small=excluded.ice_small,ice_medium=excluded.ice_medium,ice_large=excluded.ice_large,
+    paper_medium=excluded.paper_medium,paper_large=excluded.paper_large,updated_at=now();
+   v_done:=array_append(v_done,v_row.approved_order_id);
+   v_n:=v_n+1;
+ END LOOP;
+ RETURN v_n;
+END $$;
+REVOKE ALL ON FUNCTION public.partner_sheet_apply_parcels(text,text,jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.partner_sheet_apply_parcels(text,text,jsonb) TO service_role;
+ THEN CONTINUE; END IF;
+   v_uid:=(v_row->>'source_uid')::uuid;
+   v_idx:=(v_row->>'source_row')::integer;
+   IF v_idx<2 OR v_idx>20000 THEN CONTINUE; END IF;
+   IF (v_row->>'quantity') !~ '^[0-9]{1,4}$' THEN CONTINUE; END IF;
+   v_qty:=(v_row->>'quantity')::integer;
+   IF v_qty<1 OR v_qty>1000 THEN CONTINUE; END IF;
+   IF (v_row->>'order_date') !~ '^\d{4}-\d{2}-\d{2}$'
+      OR (v_row->>'ship_date') !~ '^\d{4}-\d{2}-\d{2}$'
+      OR nullif(trim(v_row->>'product_name'),'') IS NULL
+      OR nullif(trim(v_row->>'recipient'),'') IS NULL
+      OR nullif(trim(v_row->>'contact'),'') IS NULL
+      OR nullif(trim(v_row->>'address'),'') IS NULL THEN CONTINUE; END IF;
+   BEGIN
+    v_date:=(v_row->>'order_date')::date;
+    v_ship:=(v_row->>'ship_date')::date;
+   EXCEPTION WHEN others THEN CONTINUE; END;
+   IF NOT EXISTS(SELECT 1 FROM public.products WHERE active=true AND name=trim(v_row->>'product_name')) THEN CONTINUE; END IF;
+   v_hash:=md5(concat_ws(chr(31),v_date::text,v_ship::text,trim(v_row->>'product_name'),
+       v_qty::text,trim(v_row->>'recipient'),trim(v_row->>'contact'),
+       trim(v_row->>'address'),coalesce(v_row->>'note','')));
+   SELECT * INTO v_old FROM public.partner_order_rows
+      WHERE sheet_id=p_sheet_id AND source_uid=v_uid FOR UPDATE;
+   IF FOUND AND v_old.status='승인' THEN
+     IF v_old.content_hash<>v_hash THEN v_conflict:=v_conflict+1; END IF;
+     -- 승인된 원본은 수정 불가, 다만 시트에서 행이 이동한 경우 위치만 갱신
+     IF v_old.source_row<>v_idx THEN
+       UPDATE public.partner_order_rows SET source_row=v_idx WHERE id=v_old.id;
+     END IF;
+     CONTINUE;
+   END IF;
+   IF FOUND AND v_old.status='반려' THEN CONTINUE; END IF;
+   INSERT INTO public.partner_order_rows(sheet_id,source_row,source_uid,content_hash,order_date,ship_date,
+     product_name,quantity,recipient,contact,address,note)
+   VALUES (p_sheet_id,v_idx,v_uid,v_hash,v_date,v_ship,trim(v_row->>'product_name'),
+     v_qty,trim(v_row->>'recipient'),trim(v_row->>'contact'),trim(v_row->>'address'),
+     coalesce(v_row->>'note',''))
+   ON CONFLICT(sheet_id,source_uid) DO UPDATE SET
+     source_row=excluded.source_row,content_hash=excluded.content_hash,order_date=excluded.order_date,
+     ship_date=excluded.ship_date,product_name=excluded.product_name,
+     quantity=excluded.quantity,recipient=excluded.recipient,contact=excluded.contact,
+     address=excluded.address,note=excluded.note,updated_at=now()
+   WHERE public.partner_order_rows.status='승인대기'
+     AND public.partner_order_rows.content_hash IS DISTINCT FROM excluded.content_hash;
+   v_n:=v_n+1;
+ END LOOP;
+ RETURN jsonb_build_object('ok',true,'processed_rows',v_n,'approved_changed_conflicts',v_conflict);
+END $$;
+REVOKE ALL ON FUNCTION public.partner_sheet_ingest(text,text,jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.partner_sheet_ingest(text,text,jsonb) TO service_role;
+
+-- 선택한 행들을 관리자 검토 후 단일 정식 주문으로 등록. 함수 전체가 원자적으로 처리됩니다.
+CREATE OR REPLACE FUNCTION public.approve_partner_sheet_rows(p_row_ids uuid[])
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $$
+DECLARE v_first public.partner_order_rows%rowtype; v_count int; v_items jsonb;
+ v_partner text; v_order_id uuid; v_all int;
+BEGIN
+ IF NOT private.is_admin() THEN RAISE EXCEPTION '관리자 권한이 필요합니다.'; END IF;
+ v_count:=coalesce(array_length(p_row_ids,1),0);
+ IF v_count<1 OR v_count>100 OR v_count<>(SELECT count(DISTINCT id) FROM unnest(p_row_ids) x(id)) THEN
+  RAISE EXCEPTION '승인할 행을 1~100개 선택하세요 (중복 불가).';
+ END IF;
+ SELECT r.* INTO v_first FROM public.partner_order_rows r
+ WHERE r.id=ANY(p_row_ids) ORDER BY r.id LIMIT 1 FOR UPDATE;
+ IF NOT FOUND THEN RAISE EXCEPTION '승인할 주문을 찾을 수 없습니다.'; END IF;
+ SELECT count(*) INTO v_all FROM public.partner_order_rows r WHERE r.id=ANY(p_row_ids)
+ AND r.status='승인대기' AND r.sheet_id=v_first.sheet_id
+ AND r.order_date=v_first.order_date AND r.ship_date=v_first.ship_date
+ AND r.recipient=v_first.recipient AND r.contact=v_first.contact AND r.address=v_first.address;
+ -- 동시 승인 경합 방지를 위해 모든 행을 잠근 다음 상태를 재검증합니다.
+ PERFORM 1 FROM public.partner_order_rows r WHERE r.id=ANY(p_row_ids) ORDER BY r.id FOR UPDATE;
+ SELECT count(*) INTO v_all FROM public.partner_order_rows r WHERE r.id=ANY(p_row_ids)
+ AND r.status='승인대기' AND r.sheet_id=v_first.sheet_id
+ AND r.order_date=v_first.order_date AND r.ship_date=v_first.ship_date
+ AND r.recipient=v_first.recipient AND r.contact=v_first.contact AND r.address=v_first.address;
+ IF v_all<>v_count THEN RAISE EXCEPTION '서로 다른 주문 또는 이미 처리한 행이 포함됐습니다.'; END IF;
+ SELECT partner_name INTO v_partner FROM public.partner_sheet_sources WHERE sheet_id=v_first.sheet_id;
+ SELECT jsonb_agg(jsonb_build_object('product_id',p.id,'quantity',r.quantity) ORDER BY r.source_row)
+ INTO v_items FROM public.partner_order_rows r
+ JOIN public.products p ON p.name=r.product_name AND p.active=true
+ WHERE r.id=ANY(p_row_ids);
+ IF jsonb_array_length(coalesce(v_items,'[]'::jsonb))<>v_count THEN
+    RAISE EXCEPTION '상품 목록을 확인해주세요.'; END IF;
+ v_order_id:=public.create_admin_order_v2(v_first.order_date,v_partner,v_first.recipient,
+   v_first.contact,v_first.ship_date,'거래처시트',v_first.address,'택배',
+   (SELECT nullif(string_agg(DISTINCT nullif(trim(note),''),' / '),'') FROM public.partner_order_rows
+    WHERE id=ANY(p_row_ids)),v_items);
+ UPDATE public.partner_order_rows SET status='승인',approved_order_id=v_order_id,updated_at=now()
+ WHERE id=ANY(p_row_ids);
+ RETURN v_order_id;
+END $$;
+REVOKE ALL ON FUNCTION public.approve_partner_sheet_rows(uuid[]) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.approve_partner_sheet_rows(uuid[]) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.reject_partner_sheet_rows(p_row_ids uuid[])
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $$
+DECLARE v_n integer;
+BEGIN
+ IF NOT private.is_admin() THEN RAISE EXCEPTION '관리자 권한이 필요합니다.'; END IF;
+ UPDATE public.partner_order_rows SET status='반려',updated_at=now()
+ WHERE id=ANY(p_row_ids) AND status='승인대기';
+ GET DIAGNOSTICS v_n=ROW_COUNT;
+ RETURN v_n;
+END $$;
+REVOKE ALL ON FUNCTION public.reject_partner_sheet_rows(uuid[]) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.reject_partner_sheet_rows(uuid[]) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.admin_save_order_shipping(p_order_id uuid,p_tracking text,
+ p_ice_small int,p_ice_medium int,p_ice_large int,p_paper_medium int,p_paper_large int)
+RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $$
+BEGIN
+ IF NOT private.is_admin() THEN RAISE EXCEPTION '관리자 권한이 필요합니다.'; END IF;
+ IF NOT EXISTS(SELECT 1 FROM public.orders WHERE id=p_order_id) THEN RAISE EXCEPTION '주문 없음'; END IF;
+ IF least(p_ice_small,p_ice_medium,p_ice_large,p_paper_medium,p_paper_large)<0 THEN
+ RAISE EXCEPTION '박스 수량은 음수일 수 없습니다.'; END IF;
+ INSERT INTO public.order_shipping_details(order_id,tracking_numbers,ice_small,ice_medium,
+ ice_large,paper_medium,paper_large)
+ VALUES (p_order_id,coalesce(trim(p_tracking),''),p_ice_small,p_ice_medium,
+ p_ice_large,p_paper_medium,p_paper_large)
+ ON CONFLICT(order_id) DO UPDATE SET tracking_numbers=excluded.tracking_numbers,
+ ice_small=excluded.ice_small,ice_medium=excluded.ice_medium,ice_large=excluded.ice_large,
+ paper_medium=excluded.paper_medium,paper_large=excluded.paper_large,updated_at=now();
+ RETURN true;
+END $$;
+REVOKE ALL ON FUNCTION public.admin_save_order_shipping(uuid,text,int,int,int,int,int) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.admin_save_order_shipping(uuid,text,int,int,int,int,int) TO authenticated;
+
+
+-- 거래처별 접수 현황. 해당 시트의 행만 반환합니다.
+CREATE OR REPLACE FUNCTION public.partner_sheet_status(p_sheet_id text,p_token_hash text)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $$
+DECLARE v_result jsonb;
+BEGIN
+ IF NOT EXISTS(SELECT 1 FROM private.partner_sheet_tokens t
+ JOIN public.partner_sheet_sources s USING(sheet_id)
+ WHERE t.sheet_id=p_sheet_id AND t.enabled AND s.enabled AND t.token_hash=p_token_hash)
+ THEN RAISE EXCEPTION '시트 연동 인증에 실패했습니다.'; END IF;
+ SELECT coalesce(jsonb_agg(jsonb_build_object('id',r.id,'source_row',r.source_row,'source_uid',r.source_uid,
+ 'ship_date',r.ship_date,'recipient',r.recipient,'status',r.status,
+ 'updated_at',r.updated_at,'approved_order_id',r.approved_order_id)
+ ORDER BY r.source_row),'[]'::jsonb) INTO v_result
+ FROM public.partner_order_rows r WHERE r.sheet_id=p_sheet_id;
+ RETURN v_result;
+END $$;
+REVOKE ALL ON FUNCTION public.partner_sheet_status(text,text) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.partner_sheet_status(text,text) TO service_role;
+
+-- 시트 관리자 입력 열(I~N) 업데이트. 한 주문에 여러 상품 행이 있어도 한 번만 처리합니다.
+CREATE OR REPLACE FUNCTION public.partner_sheet_apply_parcels(
+ p_sheet_id text,p_token_hash text,p_parcels jsonb)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $$
+DECLARE v_p jsonb; v_row public.partner_order_rows%rowtype; v_done uuid[]:=ARRAY[]::uuid[];
+ v_i int; v_m int; v_l int; v_pm int; v_pl int; v_n int:=0; v_tracking text;
+BEGIN
+ IF NOT EXISTS(SELECT 1 FROM private.partner_sheet_tokens t
+ JOIN public.partner_sheet_sources s USING(sheet_id)
+ WHERE t.sheet_id=p_sheet_id AND t.enabled AND s.enabled AND t.token_hash=p_token_hash)
+ THEN RAISE EXCEPTION '시트 연동 인증에 실패했습니다.'; END IF;
+ IF jsonb_typeof(p_parcels)<>'array' OR jsonb_array_length(p_parcels)>500
+ THEN RAISE EXCEPTION '송장정보 배열이 올바르지 않습니다.'; END IF;
+ FOR v_p IN SELECT value FROM jsonb_array_elements(p_parcels) LOOP
+   IF (v_p->>'source_row') !~ '^[0-9]{1,5}$' THEN CONTINUE; END IF;
+   SELECT * INTO v_row FROM public.partner_order_rows
+    WHERE sheet_id=p_sheet_id AND source_uid=(v_p->>'source_uid')::uuid AND status='승인';
+   IF NOT FOUND OR v_row.approved_order_id IS NULL OR v_row.approved_order_id=ANY(v_done)
+   THEN CONTINUE; END IF;
+   IF (v_p->>'ice_small') !~ '^[0-9]{1,4}$' OR
+      (v_p->>'ice_medium') !~ '^[0-9]{1,4}$' OR
+      (v_p->>'ice_large') !~ '^[0-9]{1,4}$' OR
+      (v_p->>'paper_medium') !~ '^[0-9]{1,4}$' OR
+      (v_p->>'paper_large') !~ '^[0-9]{1,4}$'
+   THEN CONTINUE; END IF;
+   v_tracking:=left(coalesce(trim(v_p->>'tracking_numbers'),''),1000);
+   v_i:=(v_p->>'ice_small')::int; v_m:=(v_p->>'ice_medium')::int;
+   v_l:=(v_p->>'ice_large')::int; v_pm:=(v_p->>'paper_medium')::int;
+   v_pl:=(v_p->>'paper_large')::int;
+   IF v_tracking='' AND greatest(v_i,v_m,v_l,v_pm,v_pl)=0 THEN CONTINUE; END IF;
+   INSERT INTO public.order_shipping_details(order_id,tracking_numbers,ice_small,ice_medium,
+     ice_large,paper_medium,paper_large)
+   VALUES(v_row.approved_order_id,v_tracking,v_i,v_m,v_l,v_pm,v_pl)
+   ON CONFLICT(order_id) DO UPDATE SET tracking_numbers=excluded.tracking_numbers,
+    ice_small=excluded.ice_small,ice_medium=excluded.ice_medium,ice_large=excluded.ice_large,
+    paper_medium=excluded.paper_medium,paper_large=excluded.paper_large,updated_at=now();
+   v_done:=array_append(v_done,v_row.approved_order_id);
+   v_n:=v_n+1;
+ END LOOP;
+ RETURN v_n;
+END $$;
+REVOKE ALL ON FUNCTION public.partner_sheet_apply_parcels(text,text,jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.partner_sheet_apply_parcels(text,text,jsonb) TO service_role;
+ THEN CONTINUE; END IF;
+   SELECT * INTO v_row FROM public.partner_order_rows
+    WHERE sheet_id=p_sheet_id AND source_uid=(v_p->>'source_uid')::uuid AND status='승인';
+   IF NOT FOUND OR v_row.approved_order_id IS NULL OR v_row.approved_order_id=ANY(v_done)
+   THEN CONTINUE; END IF;
+   IF (v_p->>'ice_small') !~ '^[0-9]{1,4}$' OR
+      (v_p->>'ice_medium') !~ '^[0-9]{1,4}$' OR
+      (v_p->>'ice_large') !~ '^[0-9]{1,4}$' OR
+      (v_p->>'paper_medium') !~ '^[0-9]{1,4}$' OR
+      (v_p->>'paper_large') !~ '^[0-9]{1,4}$'
+   THEN CONTINUE; END IF;
+   v_tracking:=left(coalesce(trim(v_p->>'tracking_numbers'),''),1000);
+   v_i:=(v_p->>'ice_small')::int; v_m:=(v_p->>'ice_medium')::int;
+   v_l:=(v_p->>'ice_large')::int; v_pm:=(v_p->>'paper_medium')::int;
+   v_pl:=(v_p->>'paper_large')::int;
+   IF v_tracking='' AND greatest(v_i,v_m,v_l,v_pm,v_pl)=0 THEN CONTINUE; END IF;
+   INSERT INTO public.order_shipping_details(order_id,tracking_numbers,ice_small,ice_medium,
+     ice_large,paper_medium,paper_large)
+   VALUES(v_row.approved_order_id,v_tracking,v_i,v_m,v_l,v_pm,v_pl)
+   ON CONFLICT(order_id) DO UPDATE SET tracking_numbers=excluded.tracking_numbers,
+    ice_small=excluded.ice_small,ice_medium=excluded.ice_medium,ice_large=excluded.ice_large,
+    paper_medium=excluded.paper_medium,paper_large=excluded.paper_large,updated_at=now();
+   v_done:=array_append(v_done,v_row.approved_order_id);
+   v_n:=v_n+1;
+ END LOOP;
+ RETURN v_n;
+END $$;
+REVOKE ALL ON FUNCTION public.partner_sheet_apply_parcels(text,text,jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.partner_sheet_apply_parcels(text,text,jsonb) TO service_role;
+
+      OR (v_row->>'source_uid') !~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}
+   v_idx:=(v_row->>'source_row')::integer;
+   IF v_idx<2 OR v_idx>20000 THEN CONTINUE; END IF;
+   IF (v_row->>'quantity') !~ '^[0-9]{1,4}$' THEN CONTINUE; END IF;
+   v_qty:=(v_row->>'quantity')::integer;
+   IF v_qty<1 OR v_qty>1000 THEN CONTINUE; END IF;
+   IF (v_row->>'order_date') !~ '^\d{4}-\d{2}-\d{2}$'
+      OR (v_row->>'ship_date') !~ '^\d{4}-\d{2}-\d{2}$'
+      OR nullif(trim(v_row->>'product_name'),'') IS NULL
+      OR nullif(trim(v_row->>'recipient'),'') IS NULL
+      OR nullif(trim(v_row->>'contact'),'') IS NULL
+      OR nullif(trim(v_row->>'address'),'') IS NULL THEN CONTINUE; END IF;
+   BEGIN
+    v_date:=(v_row->>'order_date')::date;
+    v_ship:=(v_row->>'ship_date')::date;
+   EXCEPTION WHEN others THEN CONTINUE; END;
+   IF NOT EXISTS(SELECT 1 FROM public.products WHERE active=true AND name=trim(v_row->>'product_name')) THEN CONTINUE; END IF;
+   v_hash:=md5(concat_ws(chr(31),v_date::text,v_ship::text,trim(v_row->>'product_name'),
+       v_qty::text,trim(v_row->>'recipient'),trim(v_row->>'contact'),
+       trim(v_row->>'address'),coalesce(v_row->>'note','')));
+   SELECT * INTO v_old FROM public.partner_order_rows
+      WHERE sheet_id=p_sheet_id AND source_uid=v_uid FOR UPDATE;
+   IF FOUND AND v_old.status='승인' THEN
+     IF v_old.content_hash<>v_hash THEN v_conflict:=v_conflict+1; END IF;
+     -- 승인된 원본은 수정 불가, 다만 시트에서 행이 이동한 경우 위치만 갱신
+     IF v_old.source_row<>v_idx THEN
+       UPDATE public.partner_order_rows SET source_row=v_idx WHERE id=v_old.id;
+     END IF;
+     CONTINUE;
+   END IF;
+   IF FOUND AND v_old.status='반려' THEN CONTINUE; END IF;
+   INSERT INTO public.partner_order_rows(sheet_id,source_row,source_uid,content_hash,order_date,ship_date,
+     product_name,quantity,recipient,contact,address,note)
+   VALUES (p_sheet_id,v_idx,v_uid,v_hash,v_date,v_ship,trim(v_row->>'product_name'),
+     v_qty,trim(v_row->>'recipient'),trim(v_row->>'contact'),trim(v_row->>'address'),
+     coalesce(v_row->>'note',''))
+   ON CONFLICT(sheet_id,source_uid) DO UPDATE SET
+     source_row=excluded.source_row,content_hash=excluded.content_hash,order_date=excluded.order_date,
+     ship_date=excluded.ship_date,product_name=excluded.product_name,
+     quantity=excluded.quantity,recipient=excluded.recipient,contact=excluded.contact,
+     address=excluded.address,note=excluded.note,updated_at=now()
+   WHERE public.partner_order_rows.status='승인대기'
+     AND public.partner_order_rows.content_hash IS DISTINCT FROM excluded.content_hash;
+   v_n:=v_n+1;
+ END LOOP;
+ RETURN jsonb_build_object('ok',true,'processed_rows',v_n,'approved_changed_conflicts',v_conflict);
+END $$;
+REVOKE ALL ON FUNCTION public.partner_sheet_ingest(text,text,jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.partner_sheet_ingest(text,text,jsonb) TO service_role;
+
+-- 선택한 행들을 관리자 검토 후 단일 정식 주문으로 등록. 함수 전체가 원자적으로 처리됩니다.
+CREATE OR REPLACE FUNCTION public.approve_partner_sheet_rows(p_row_ids uuid[])
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $$
+DECLARE v_first public.partner_order_rows%rowtype; v_count int; v_items jsonb;
+ v_partner text; v_order_id uuid; v_all int;
+BEGIN
+ IF NOT private.is_admin() THEN RAISE EXCEPTION '관리자 권한이 필요합니다.'; END IF;
+ v_count:=coalesce(array_length(p_row_ids,1),0);
+ IF v_count<1 OR v_count>100 OR v_count<>(SELECT count(DISTINCT id) FROM unnest(p_row_ids) x(id)) THEN
+  RAISE EXCEPTION '승인할 행을 1~100개 선택하세요 (중복 불가).';
+ END IF;
+ SELECT r.* INTO v_first FROM public.partner_order_rows r
+ WHERE r.id=ANY(p_row_ids) ORDER BY r.id LIMIT 1 FOR UPDATE;
+ IF NOT FOUND THEN RAISE EXCEPTION '승인할 주문을 찾을 수 없습니다.'; END IF;
+ SELECT count(*) INTO v_all FROM public.partner_order_rows r WHERE r.id=ANY(p_row_ids)
+ AND r.status='승인대기' AND r.sheet_id=v_first.sheet_id
+ AND r.order_date=v_first.order_date AND r.ship_date=v_first.ship_date
+ AND r.recipient=v_first.recipient AND r.contact=v_first.contact AND r.address=v_first.address;
+ -- 동시 승인 경합 방지를 위해 모든 행을 잠근 다음 상태를 재검증합니다.
+ PERFORM 1 FROM public.partner_order_rows r WHERE r.id=ANY(p_row_ids) ORDER BY r.id FOR UPDATE;
+ SELECT count(*) INTO v_all FROM public.partner_order_rows r WHERE r.id=ANY(p_row_ids)
+ AND r.status='승인대기' AND r.sheet_id=v_first.sheet_id
+ AND r.order_date=v_first.order_date AND r.ship_date=v_first.ship_date
+ AND r.recipient=v_first.recipient AND r.contact=v_first.contact AND r.address=v_first.address;
+ IF v_all<>v_count THEN RAISE EXCEPTION '서로 다른 주문 또는 이미 처리한 행이 포함됐습니다.'; END IF;
+ SELECT partner_name INTO v_partner FROM public.partner_sheet_sources WHERE sheet_id=v_first.sheet_id;
+ SELECT jsonb_agg(jsonb_build_object('product_id',p.id,'quantity',r.quantity) ORDER BY r.source_row)
+ INTO v_items FROM public.partner_order_rows r
+ JOIN public.products p ON p.name=r.product_name AND p.active=true
+ WHERE r.id=ANY(p_row_ids);
+ IF jsonb_array_length(coalesce(v_items,'[]'::jsonb))<>v_count THEN
+    RAISE EXCEPTION '상품 목록을 확인해주세요.'; END IF;
+ v_order_id:=public.create_admin_order_v2(v_first.order_date,v_partner,v_first.recipient,
+   v_first.contact,v_first.ship_date,'거래처시트',v_first.address,'택배',
+   (SELECT nullif(string_agg(DISTINCT nullif(trim(note),''),' / '),'') FROM public.partner_order_rows
+    WHERE id=ANY(p_row_ids)),v_items);
+ UPDATE public.partner_order_rows SET status='승인',approved_order_id=v_order_id,updated_at=now()
+ WHERE id=ANY(p_row_ids);
+ RETURN v_order_id;
+END $$;
+REVOKE ALL ON FUNCTION public.approve_partner_sheet_rows(uuid[]) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.approve_partner_sheet_rows(uuid[]) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.reject_partner_sheet_rows(p_row_ids uuid[])
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $$
+DECLARE v_n integer;
+BEGIN
+ IF NOT private.is_admin() THEN RAISE EXCEPTION '관리자 권한이 필요합니다.'; END IF;
+ UPDATE public.partner_order_rows SET status='반려',updated_at=now()
+ WHERE id=ANY(p_row_ids) AND status='승인대기';
+ GET DIAGNOSTICS v_n=ROW_COUNT;
+ RETURN v_n;
+END $$;
+REVOKE ALL ON FUNCTION public.reject_partner_sheet_rows(uuid[]) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.reject_partner_sheet_rows(uuid[]) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.admin_save_order_shipping(p_order_id uuid,p_tracking text,
+ p_ice_small int,p_ice_medium int,p_ice_large int,p_paper_medium int,p_paper_large int)
+RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $$
+BEGIN
+ IF NOT private.is_admin() THEN RAISE EXCEPTION '관리자 권한이 필요합니다.'; END IF;
+ IF NOT EXISTS(SELECT 1 FROM public.orders WHERE id=p_order_id) THEN RAISE EXCEPTION '주문 없음'; END IF;
+ IF least(p_ice_small,p_ice_medium,p_ice_large,p_paper_medium,p_paper_large)<0 THEN
+ RAISE EXCEPTION '박스 수량은 음수일 수 없습니다.'; END IF;
+ INSERT INTO public.order_shipping_details(order_id,tracking_numbers,ice_small,ice_medium,
+ ice_large,paper_medium,paper_large)
+ VALUES (p_order_id,coalesce(trim(p_tracking),''),p_ice_small,p_ice_medium,
+ p_ice_large,p_paper_medium,p_paper_large)
+ ON CONFLICT(order_id) DO UPDATE SET tracking_numbers=excluded.tracking_numbers,
+ ice_small=excluded.ice_small,ice_medium=excluded.ice_medium,ice_large=excluded.ice_large,
+ paper_medium=excluded.paper_medium,paper_large=excluded.paper_large,updated_at=now();
+ RETURN true;
+END $$;
+REVOKE ALL ON FUNCTION public.admin_save_order_shipping(uuid,text,int,int,int,int,int) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.admin_save_order_shipping(uuid,text,int,int,int,int,int) TO authenticated;
+
+
+-- 거래처별 접수 현황. 해당 시트의 행만 반환합니다.
+CREATE OR REPLACE FUNCTION public.partner_sheet_status(p_sheet_id text,p_token_hash text)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $$
+DECLARE v_result jsonb;
+BEGIN
+ IF NOT EXISTS(SELECT 1 FROM private.partner_sheet_tokens t
+ JOIN public.partner_sheet_sources s USING(sheet_id)
+ WHERE t.sheet_id=p_sheet_id AND t.enabled AND s.enabled AND t.token_hash=p_token_hash)
+ THEN RAISE EXCEPTION '시트 연동 인증에 실패했습니다.'; END IF;
+ SELECT coalesce(jsonb_agg(jsonb_build_object('id',r.id,'source_row',r.source_row,'source_uid',r.source_uid,
+ 'ship_date',r.ship_date,'recipient',r.recipient,'status',r.status,
+ 'updated_at',r.updated_at,'approved_order_id',r.approved_order_id)
+ ORDER BY r.source_row),'[]'::jsonb) INTO v_result
+ FROM public.partner_order_rows r WHERE r.sheet_id=p_sheet_id;
+ RETURN v_result;
+END $$;
+REVOKE ALL ON FUNCTION public.partner_sheet_status(text,text) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.partner_sheet_status(text,text) TO service_role;
+
+-- 시트 관리자 입력 열(I~N) 업데이트. 한 주문에 여러 상품 행이 있어도 한 번만 처리합니다.
+CREATE OR REPLACE FUNCTION public.partner_sheet_apply_parcels(
+ p_sheet_id text,p_token_hash text,p_parcels jsonb)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $$
+DECLARE v_p jsonb; v_row public.partner_order_rows%rowtype; v_done uuid[]:=ARRAY[]::uuid[];
+ v_i int; v_m int; v_l int; v_pm int; v_pl int; v_n int:=0; v_tracking text;
+BEGIN
+ IF NOT EXISTS(SELECT 1 FROM private.partner_sheet_tokens t
+ JOIN public.partner_sheet_sources s USING(sheet_id)
+ WHERE t.sheet_id=p_sheet_id AND t.enabled AND s.enabled AND t.token_hash=p_token_hash)
+ THEN RAISE EXCEPTION '시트 연동 인증에 실패했습니다.'; END IF;
+ IF jsonb_typeof(p_parcels)<>'array' OR jsonb_array_length(p_parcels)>500
+ THEN RAISE EXCEPTION '송장정보 배열이 올바르지 않습니다.'; END IF;
+ FOR v_p IN SELECT value FROM jsonb_array_elements(p_parcels) LOOP
+   IF (v_p->>'source_uid') !~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}
+   SELECT * INTO v_row FROM public.partner_order_rows
+    WHERE sheet_id=p_sheet_id AND source_uid=(v_p->>'source_uid')::uuid AND status='승인';
+   IF NOT FOUND OR v_row.approved_order_id IS NULL OR v_row.approved_order_id=ANY(v_done)
+   THEN CONTINUE; END IF;
+   IF (v_p->>'ice_small') !~ '^[0-9]{1,4}$' OR
+      (v_p->>'ice_medium') !~ '^[0-9]{1,4}$' OR
+      (v_p->>'ice_large') !~ '^[0-9]{1,4}$' OR
+      (v_p->>'paper_medium') !~ '^[0-9]{1,4}$' OR
+      (v_p->>'paper_large') !~ '^[0-9]{1,4}$'
+   THEN CONTINUE; END IF;
+   v_tracking:=left(coalesce(trim(v_p->>'tracking_numbers'),''),1000);
+   v_i:=(v_p->>'ice_small')::int; v_m:=(v_p->>'ice_medium')::int;
+   v_l:=(v_p->>'ice_large')::int; v_pm:=(v_p->>'paper_medium')::int;
+   v_pl:=(v_p->>'paper_large')::int;
+   IF v_tracking='' AND greatest(v_i,v_m,v_l,v_pm,v_pl)=0 THEN CONTINUE; END IF;
+   INSERT INTO public.order_shipping_details(order_id,tracking_numbers,ice_small,ice_medium,
+     ice_large,paper_medium,paper_large)
+   VALUES(v_row.approved_order_id,v_tracking,v_i,v_m,v_l,v_pm,v_pl)
+   ON CONFLICT(order_id) DO UPDATE SET tracking_numbers=excluded.tracking_numbers,
+    ice_small=excluded.ice_small,ice_medium=excluded.ice_medium,ice_large=excluded.ice_large,
+    paper_medium=excluded.paper_medium,paper_large=excluded.paper_large,updated_at=now();
+   v_done:=array_append(v_done,v_row.approved_order_id);
+   v_n:=v_n+1;
+ END LOOP;
+ RETURN v_n;
+END $$;
+REVOKE ALL ON FUNCTION public.partner_sheet_apply_parcels(text,text,jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.partner_sheet_apply_parcels(text,text,jsonb) TO service_role;
+ THEN CONTINUE; END IF;
+   v_uid:=(v_row->>'source_uid')::uuid;
+   v_idx:=(v_row->>'source_row')::integer;
+   IF v_idx<2 OR v_idx>20000 THEN CONTINUE; END IF;
+   IF (v_row->>'quantity') !~ '^[0-9]{1,4}$' THEN CONTINUE; END IF;
+   v_qty:=(v_row->>'quantity')::integer;
+   IF v_qty<1 OR v_qty>1000 THEN CONTINUE; END IF;
+   IF (v_row->>'order_date') !~ '^\d{4}-\d{2}-\d{2}$'
+      OR (v_row->>'ship_date') !~ '^\d{4}-\d{2}-\d{2}$'
+      OR nullif(trim(v_row->>'product_name'),'') IS NULL
+      OR nullif(trim(v_row->>'recipient'),'') IS NULL
+      OR nullif(trim(v_row->>'contact'),'') IS NULL
+      OR nullif(trim(v_row->>'address'),'') IS NULL THEN CONTINUE; END IF;
+   BEGIN
+    v_date:=(v_row->>'order_date')::date;
+    v_ship:=(v_row->>'ship_date')::date;
+   EXCEPTION WHEN others THEN CONTINUE; END;
+   IF NOT EXISTS(SELECT 1 FROM public.products WHERE active=true AND name=trim(v_row->>'product_name')) THEN CONTINUE; END IF;
+   v_hash:=md5(concat_ws(chr(31),v_date::text,v_ship::text,trim(v_row->>'product_name'),
+       v_qty::text,trim(v_row->>'recipient'),trim(v_row->>'contact'),
+       trim(v_row->>'address'),coalesce(v_row->>'note','')));
+   SELECT * INTO v_old FROM public.partner_order_rows
+      WHERE sheet_id=p_sheet_id AND source_uid=v_uid FOR UPDATE;
+   IF FOUND AND v_old.status='승인' THEN
+     IF v_old.content_hash<>v_hash THEN v_conflict:=v_conflict+1; END IF;
+     -- 승인된 원본은 수정 불가, 다만 시트에서 행이 이동한 경우 위치만 갱신
+     IF v_old.source_row<>v_idx THEN
+       UPDATE public.partner_order_rows SET source_row=v_idx WHERE id=v_old.id;
+     END IF;
+     CONTINUE;
+   END IF;
+   IF FOUND AND v_old.status='반려' THEN CONTINUE; END IF;
+   INSERT INTO public.partner_order_rows(sheet_id,source_row,source_uid,content_hash,order_date,ship_date,
+     product_name,quantity,recipient,contact,address,note)
+   VALUES (p_sheet_id,v_idx,v_uid,v_hash,v_date,v_ship,trim(v_row->>'product_name'),
+     v_qty,trim(v_row->>'recipient'),trim(v_row->>'contact'),trim(v_row->>'address'),
+     coalesce(v_row->>'note',''))
+   ON CONFLICT(sheet_id,source_uid) DO UPDATE SET
+     source_row=excluded.source_row,content_hash=excluded.content_hash,order_date=excluded.order_date,
+     ship_date=excluded.ship_date,product_name=excluded.product_name,
+     quantity=excluded.quantity,recipient=excluded.recipient,contact=excluded.contact,
+     address=excluded.address,note=excluded.note,updated_at=now()
+   WHERE public.partner_order_rows.status='승인대기'
+     AND public.partner_order_rows.content_hash IS DISTINCT FROM excluded.content_hash;
+   v_n:=v_n+1;
+ END LOOP;
+ RETURN jsonb_build_object('ok',true,'processed_rows',v_n,'approved_changed_conflicts',v_conflict);
+END $$;
+REVOKE ALL ON FUNCTION public.partner_sheet_ingest(text,text,jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.partner_sheet_ingest(text,text,jsonb) TO service_role;
+
+-- 선택한 행들을 관리자 검토 후 단일 정식 주문으로 등록. 함수 전체가 원자적으로 처리됩니다.
+CREATE OR REPLACE FUNCTION public.approve_partner_sheet_rows(p_row_ids uuid[])
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $$
+DECLARE v_first public.partner_order_rows%rowtype; v_count int; v_items jsonb;
+ v_partner text; v_order_id uuid; v_all int;
+BEGIN
+ IF NOT private.is_admin() THEN RAISE EXCEPTION '관리자 권한이 필요합니다.'; END IF;
+ v_count:=coalesce(array_length(p_row_ids,1),0);
+ IF v_count<1 OR v_count>100 OR v_count<>(SELECT count(DISTINCT id) FROM unnest(p_row_ids) x(id)) THEN
+  RAISE EXCEPTION '승인할 행을 1~100개 선택하세요 (중복 불가).';
+ END IF;
+ SELECT r.* INTO v_first FROM public.partner_order_rows r
+ WHERE r.id=ANY(p_row_ids) ORDER BY r.id LIMIT 1 FOR UPDATE;
+ IF NOT FOUND THEN RAISE EXCEPTION '승인할 주문을 찾을 수 없습니다.'; END IF;
+ SELECT count(*) INTO v_all FROM public.partner_order_rows r WHERE r.id=ANY(p_row_ids)
+ AND r.status='승인대기' AND r.sheet_id=v_first.sheet_id
+ AND r.order_date=v_first.order_date AND r.ship_date=v_first.ship_date
+ AND r.recipient=v_first.recipient AND r.contact=v_first.contact AND r.address=v_first.address;
+ -- 동시 승인 경합 방지를 위해 모든 행을 잠근 다음 상태를 재검증합니다.
+ PERFORM 1 FROM public.partner_order_rows r WHERE r.id=ANY(p_row_ids) ORDER BY r.id FOR UPDATE;
+ SELECT count(*) INTO v_all FROM public.partner_order_rows r WHERE r.id=ANY(p_row_ids)
+ AND r.status='승인대기' AND r.sheet_id=v_first.sheet_id
+ AND r.order_date=v_first.order_date AND r.ship_date=v_first.ship_date
+ AND r.recipient=v_first.recipient AND r.contact=v_first.contact AND r.address=v_first.address;
+ IF v_all<>v_count THEN RAISE EXCEPTION '서로 다른 주문 또는 이미 처리한 행이 포함됐습니다.'; END IF;
+ SELECT partner_name INTO v_partner FROM public.partner_sheet_sources WHERE sheet_id=v_first.sheet_id;
+ SELECT jsonb_agg(jsonb_build_object('product_id',p.id,'quantity',r.quantity) ORDER BY r.source_row)
+ INTO v_items FROM public.partner_order_rows r
+ JOIN public.products p ON p.name=r.product_name AND p.active=true
+ WHERE r.id=ANY(p_row_ids);
+ IF jsonb_array_length(coalesce(v_items,'[]'::jsonb))<>v_count THEN
+    RAISE EXCEPTION '상품 목록을 확인해주세요.'; END IF;
+ v_order_id:=public.create_admin_order_v2(v_first.order_date,v_partner,v_first.recipient,
+   v_first.contact,v_first.ship_date,'거래처시트',v_first.address,'택배',
+   (SELECT nullif(string_agg(DISTINCT nullif(trim(note),''),' / '),'') FROM public.partner_order_rows
+    WHERE id=ANY(p_row_ids)),v_items);
+ UPDATE public.partner_order_rows SET status='승인',approved_order_id=v_order_id,updated_at=now()
+ WHERE id=ANY(p_row_ids);
+ RETURN v_order_id;
+END $$;
+REVOKE ALL ON FUNCTION public.approve_partner_sheet_rows(uuid[]) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.approve_partner_sheet_rows(uuid[]) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.reject_partner_sheet_rows(p_row_ids uuid[])
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $$
+DECLARE v_n integer;
+BEGIN
+ IF NOT private.is_admin() THEN RAISE EXCEPTION '관리자 권한이 필요합니다.'; END IF;
+ UPDATE public.partner_order_rows SET status='반려',updated_at=now()
+ WHERE id=ANY(p_row_ids) AND status='승인대기';
+ GET DIAGNOSTICS v_n=ROW_COUNT;
+ RETURN v_n;
+END $$;
+REVOKE ALL ON FUNCTION public.reject_partner_sheet_rows(uuid[]) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.reject_partner_sheet_rows(uuid[]) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.admin_save_order_shipping(p_order_id uuid,p_tracking text,
+ p_ice_small int,p_ice_medium int,p_ice_large int,p_paper_medium int,p_paper_large int)
+RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $$
+BEGIN
+ IF NOT private.is_admin() THEN RAISE EXCEPTION '관리자 권한이 필요합니다.'; END IF;
+ IF NOT EXISTS(SELECT 1 FROM public.orders WHERE id=p_order_id) THEN RAISE EXCEPTION '주문 없음'; END IF;
+ IF least(p_ice_small,p_ice_medium,p_ice_large,p_paper_medium,p_paper_large)<0 THEN
+ RAISE EXCEPTION '박스 수량은 음수일 수 없습니다.'; END IF;
+ INSERT INTO public.order_shipping_details(order_id,tracking_numbers,ice_small,ice_medium,
+ ice_large,paper_medium,paper_large)
+ VALUES (p_order_id,coalesce(trim(p_tracking),''),p_ice_small,p_ice_medium,
+ p_ice_large,p_paper_medium,p_paper_large)
+ ON CONFLICT(order_id) DO UPDATE SET tracking_numbers=excluded.tracking_numbers,
+ ice_small=excluded.ice_small,ice_medium=excluded.ice_medium,ice_large=excluded.ice_large,
+ paper_medium=excluded.paper_medium,paper_large=excluded.paper_large,updated_at=now();
+ RETURN true;
+END $$;
+REVOKE ALL ON FUNCTION public.admin_save_order_shipping(uuid,text,int,int,int,int,int) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.admin_save_order_shipping(uuid,text,int,int,int,int,int) TO authenticated;
+
+
+-- 거래처별 접수 현황. 해당 시트의 행만 반환합니다.
+CREATE OR REPLACE FUNCTION public.partner_sheet_status(p_sheet_id text,p_token_hash text)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $$
+DECLARE v_result jsonb;
+BEGIN
+ IF NOT EXISTS(SELECT 1 FROM private.partner_sheet_tokens t
+ JOIN public.partner_sheet_sources s USING(sheet_id)
+ WHERE t.sheet_id=p_sheet_id AND t.enabled AND s.enabled AND t.token_hash=p_token_hash)
+ THEN RAISE EXCEPTION '시트 연동 인증에 실패했습니다.'; END IF;
+ SELECT coalesce(jsonb_agg(jsonb_build_object('id',r.id,'source_row',r.source_row,'source_uid',r.source_uid,
+ 'ship_date',r.ship_date,'recipient',r.recipient,'status',r.status,
+ 'updated_at',r.updated_at,'approved_order_id',r.approved_order_id)
+ ORDER BY r.source_row),'[]'::jsonb) INTO v_result
+ FROM public.partner_order_rows r WHERE r.sheet_id=p_sheet_id;
+ RETURN v_result;
+END $$;
+REVOKE ALL ON FUNCTION public.partner_sheet_status(text,text) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.partner_sheet_status(text,text) TO service_role;
+
+-- 시트 관리자 입력 열(I~N) 업데이트. 한 주문에 여러 상품 행이 있어도 한 번만 처리합니다.
+CREATE OR REPLACE FUNCTION public.partner_sheet_apply_parcels(
+ p_sheet_id text,p_token_hash text,p_parcels jsonb)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $$
+DECLARE v_p jsonb; v_row public.partner_order_rows%rowtype; v_done uuid[]:=ARRAY[]::uuid[];
+ v_i int; v_m int; v_l int; v_pm int; v_pl int; v_n int:=0; v_tracking text;
+BEGIN
+ IF NOT EXISTS(SELECT 1 FROM private.partner_sheet_tokens t
+ JOIN public.partner_sheet_sources s USING(sheet_id)
+ WHERE t.sheet_id=p_sheet_id AND t.enabled AND s.enabled AND t.token_hash=p_token_hash)
+ THEN RAISE EXCEPTION '시트 연동 인증에 실패했습니다.'; END IF;
+ IF jsonb_typeof(p_parcels)<>'array' OR jsonb_array_length(p_parcels)>500
+ THEN RAISE EXCEPTION '송장정보 배열이 올바르지 않습니다.'; END IF;
+ FOR v_p IN SELECT value FROM jsonb_array_elements(p_parcels) LOOP
+   IF (v_p->>'source_row') !~ '^[0-9]{1,5}$' THEN CONTINUE; END IF;
+   SELECT * INTO v_row FROM public.partner_order_rows
+    WHERE sheet_id=p_sheet_id AND source_uid=(v_p->>'source_uid')::uuid AND status='승인';
+   IF NOT FOUND OR v_row.approved_order_id IS NULL OR v_row.approved_order_id=ANY(v_done)
+   THEN CONTINUE; END IF;
+   IF (v_p->>'ice_small') !~ '^[0-9]{1,4}$' OR
+      (v_p->>'ice_medium') !~ '^[0-9]{1,4}$' OR
+      (v_p->>'ice_large') !~ '^[0-9]{1,4}$' OR
+      (v_p->>'paper_medium') !~ '^[0-9]{1,4}$' OR
+      (v_p->>'paper_large') !~ '^[0-9]{1,4}$'
+   THEN CONTINUE; END IF;
+   v_tracking:=left(coalesce(trim(v_p->>'tracking_numbers'),''),1000);
+   v_i:=(v_p->>'ice_small')::int; v_m:=(v_p->>'ice_medium')::int;
+   v_l:=(v_p->>'ice_large')::int; v_pm:=(v_p->>'paper_medium')::int;
+   v_pl:=(v_p->>'paper_large')::int;
+   IF v_tracking='' AND greatest(v_i,v_m,v_l,v_pm,v_pl)=0 THEN CONTINUE; END IF;
+   INSERT INTO public.order_shipping_details(order_id,tracking_numbers,ice_small,ice_medium,
+     ice_large,paper_medium,paper_large)
+   VALUES(v_row.approved_order_id,v_tracking,v_i,v_m,v_l,v_pm,v_pl)
+   ON CONFLICT(order_id) DO UPDATE SET tracking_numbers=excluded.tracking_numbers,
+    ice_small=excluded.ice_small,ice_medium=excluded.ice_medium,ice_large=excluded.ice_large,
+    paper_medium=excluded.paper_medium,paper_large=excluded.paper_large,updated_at=now();
+   v_done:=array_append(v_done,v_row.approved_order_id);
+   v_n:=v_n+1;
+ END LOOP;
+ RETURN v_n;
+END $$;
+REVOKE ALL ON FUNCTION public.partner_sheet_apply_parcels(text,text,jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.partner_sheet_apply_parcels(text,text,jsonb) TO service_role;
+ THEN CONTINUE; END IF;
+   SELECT * INTO v_row FROM public.partner_order_rows
+    WHERE sheet_id=p_sheet_id AND source_uid=(v_p->>'source_uid')::uuid AND status='승인';
+   IF NOT FOUND OR v_row.approved_order_id IS NULL OR v_row.approved_order_id=ANY(v_done)
+   THEN CONTINUE; END IF;
+   IF (v_p->>'ice_small') !~ '^[0-9]{1,4}$' OR
+      (v_p->>'ice_medium') !~ '^[0-9]{1,4}$' OR
+      (v_p->>'ice_large') !~ '^[0-9]{1,4}$' OR
+      (v_p->>'paper_medium') !~ '^[0-9]{1,4}$' OR
+      (v_p->>'paper_large') !~ '^[0-9]{1,4}$'
+   THEN CONTINUE; END IF;
+   v_tracking:=left(coalesce(trim(v_p->>'tracking_numbers'),''),1000);
+   v_i:=(v_p->>'ice_small')::int; v_m:=(v_p->>'ice_medium')::int;
+   v_l:=(v_p->>'ice_large')::int; v_pm:=(v_p->>'paper_medium')::int;
+   v_pl:=(v_p->>'paper_large')::int;
+   IF v_tracking='' AND greatest(v_i,v_m,v_l,v_pm,v_pl)=0 THEN CONTINUE; END IF;
+   INSERT INTO public.order_shipping_details(order_id,tracking_numbers,ice_small,ice_medium,
+     ice_large,paper_medium,paper_large)
+   VALUES(v_row.approved_order_id,v_tracking,v_i,v_m,v_l,v_pm,v_pl)
+   ON CONFLICT(order_id) DO UPDATE SET tracking_numbers=excluded.tracking_numbers,
+    ice_small=excluded.ice_small,ice_medium=excluded.ice_medium,ice_large=excluded.ice_large,
+    paper_medium=excluded.paper_medium,paper_large=excluded.paper_large,updated_at=now();
+   v_done:=array_append(v_done,v_row.approved_order_id);
+   v_n:=v_n+1;
+ END LOOP;
+ RETURN v_n;
+END $$;
+REVOKE ALL ON FUNCTION public.partner_sheet_apply_parcels(text,text,jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.partner_sheet_apply_parcels(text,text,jsonb) TO service_role;
+ THEN CONTINUE; END IF;
+   v_uid:=(v_row->>'source_uid')::uuid;
+   v_idx:=(v_row->>'source_row')::integer;
+   IF v_idx<2 OR v_idx>20000 THEN CONTINUE; END IF;
+   IF (v_row->>'quantity') !~ '^[0-9]{1,4}$' THEN CONTINUE; END IF;
+   v_qty:=(v_row->>'quantity')::integer;
+   IF v_qty<1 OR v_qty>1000 THEN CONTINUE; END IF;
+   IF (v_row->>'order_date') !~ '^\d{4}-\d{2}-\d{2}$'
+      OR (v_row->>'ship_date') !~ '^\d{4}-\d{2}-\d{2}$'
+      OR nullif(trim(v_row->>'product_name'),'') IS NULL
+      OR nullif(trim(v_row->>'recipient'),'') IS NULL
+      OR nullif(trim(v_row->>'contact'),'') IS NULL
+      OR nullif(trim(v_row->>'address'),'') IS NULL THEN CONTINUE; END IF;
+   BEGIN
+    v_date:=(v_row->>'order_date')::date;
+    v_ship:=(v_row->>'ship_date')::date;
+   EXCEPTION WHEN others THEN CONTINUE; END;
+   IF NOT EXISTS(SELECT 1 FROM public.products WHERE active=true AND name=trim(v_row->>'product_name')) THEN CONTINUE; END IF;
+   v_hash:=md5(concat_ws(chr(31),v_date::text,v_ship::text,trim(v_row->>'product_name'),
+       v_qty::text,trim(v_row->>'recipient'),trim(v_row->>'contact'),
+       trim(v_row->>'address'),coalesce(v_row->>'note','')));
+   SELECT * INTO v_old FROM public.partner_order_rows
+      WHERE sheet_id=p_sheet_id AND source_uid=v_uid FOR UPDATE;
+   IF FOUND AND v_old.status='승인' THEN
+     IF v_old.content_hash<>v_hash THEN v_conflict:=v_conflict+1; END IF;
+     -- 승인된 원본은 수정 불가, 다만 시트에서 행이 이동한 경우 위치만 갱신
+     IF v_old.source_row<>v_idx THEN
+       UPDATE public.partner_order_rows SET source_row=v_idx WHERE id=v_old.id;
+     END IF;
+     CONTINUE;
+   END IF;
+   IF FOUND AND v_old.status='반려' THEN CONTINUE; END IF;
+   INSERT INTO public.partner_order_rows(sheet_id,source_row,source_uid,content_hash,order_date,ship_date,
+     product_name,quantity,recipient,contact,address,note)
+   VALUES (p_sheet_id,v_idx,v_uid,v_hash,v_date,v_ship,trim(v_row->>'product_name'),
+     v_qty,trim(v_row->>'recipient'),trim(v_row->>'contact'),trim(v_row->>'address'),
+     coalesce(v_row->>'note',''))
+   ON CONFLICT(sheet_id,source_uid) DO UPDATE SET
+     source_row=excluded.source_row,content_hash=excluded.content_hash,order_date=excluded.order_date,
+     ship_date=excluded.ship_date,product_name=excluded.product_name,
+     quantity=excluded.quantity,recipient=excluded.recipient,contact=excluded.contact,
+     address=excluded.address,note=excluded.note,updated_at=now()
+   WHERE public.partner_order_rows.status='승인대기'
+     AND public.partner_order_rows.content_hash IS DISTINCT FROM excluded.content_hash;
+   v_n:=v_n+1;
+ END LOOP;
+ RETURN jsonb_build_object('ok',true,'processed_rows',v_n,'approved_changed_conflicts',v_conflict);
+END $$;
+REVOKE ALL ON FUNCTION public.partner_sheet_ingest(text,text,jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.partner_sheet_ingest(text,text,jsonb) TO service_role;
+
+-- 선택한 행들을 관리자 검토 후 단일 정식 주문으로 등록. 함수 전체가 원자적으로 처리됩니다.
+CREATE OR REPLACE FUNCTION public.approve_partner_sheet_rows(p_row_ids uuid[])
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $$
+DECLARE v_first public.partner_order_rows%rowtype; v_count int; v_items jsonb;
+ v_partner text; v_order_id uuid; v_all int;
+BEGIN
+ IF NOT private.is_admin() THEN RAISE EXCEPTION '관리자 권한이 필요합니다.'; END IF;
+ v_count:=coalesce(array_length(p_row_ids,1),0);
+ IF v_count<1 OR v_count>100 OR v_count<>(SELECT count(DISTINCT id) FROM unnest(p_row_ids) x(id)) THEN
+  RAISE EXCEPTION '승인할 행을 1~100개 선택하세요 (중복 불가).';
+ END IF;
+ SELECT r.* INTO v_first FROM public.partner_order_rows r
+ WHERE r.id=ANY(p_row_ids) ORDER BY r.id LIMIT 1 FOR UPDATE;
+ IF NOT FOUND THEN RAISE EXCEPTION '승인할 주문을 찾을 수 없습니다.'; END IF;
+ SELECT count(*) INTO v_all FROM public.partner_order_rows r WHERE r.id=ANY(p_row_ids)
+ AND r.status='승인대기' AND r.sheet_id=v_first.sheet_id
+ AND r.order_date=v_first.order_date AND r.ship_date=v_first.ship_date
+ AND r.recipient=v_first.recipient AND r.contact=v_first.contact AND r.address=v_first.address;
+ -- 동시 승인 경합 방지를 위해 모든 행을 잠근 다음 상태를 재검증합니다.
+ PERFORM 1 FROM public.partner_order_rows r WHERE r.id=ANY(p_row_ids) ORDER BY r.id FOR UPDATE;
+ SELECT count(*) INTO v_all FROM public.partner_order_rows r WHERE r.id=ANY(p_row_ids)
+ AND r.status='승인대기' AND r.sheet_id=v_first.sheet_id
+ AND r.order_date=v_first.order_date AND r.ship_date=v_first.ship_date
+ AND r.recipient=v_first.recipient AND r.contact=v_first.contact AND r.address=v_first.address;
+ IF v_all<>v_count THEN RAISE EXCEPTION '서로 다른 주문 또는 이미 처리한 행이 포함됐습니다.'; END IF;
+ SELECT partner_name INTO v_partner FROM public.partner_sheet_sources WHERE sheet_id=v_first.sheet_id;
+ SELECT jsonb_agg(jsonb_build_object('product_id',p.id,'quantity',r.quantity) ORDER BY r.source_row)
+ INTO v_items FROM public.partner_order_rows r
+ JOIN public.products p ON p.name=r.product_name AND p.active=true
+ WHERE r.id=ANY(p_row_ids);
+ IF jsonb_array_length(coalesce(v_items,'[]'::jsonb))<>v_count THEN
+    RAISE EXCEPTION '상품 목록을 확인해주세요.'; END IF;
+ v_order_id:=public.create_admin_order_v2(v_first.order_date,v_partner,v_first.recipient,
+   v_first.contact,v_first.ship_date,'거래처시트',v_first.address,'택배',
+   (SELECT nullif(string_agg(DISTINCT nullif(trim(note),''),' / '),'') FROM public.partner_order_rows
+    WHERE id=ANY(p_row_ids)),v_items);
+ UPDATE public.partner_order_rows SET status='승인',approved_order_id=v_order_id,updated_at=now()
+ WHERE id=ANY(p_row_ids);
+ RETURN v_order_id;
+END $$;
+REVOKE ALL ON FUNCTION public.approve_partner_sheet_rows(uuid[]) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.approve_partner_sheet_rows(uuid[]) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.reject_partner_sheet_rows(p_row_ids uuid[])
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $$
+DECLARE v_n integer;
+BEGIN
+ IF NOT private.is_admin() THEN RAISE EXCEPTION '관리자 권한이 필요합니다.'; END IF;
+ UPDATE public.partner_order_rows SET status='반려',updated_at=now()
+ WHERE id=ANY(p_row_ids) AND status='승인대기';
+ GET DIAGNOSTICS v_n=ROW_COUNT;
+ RETURN v_n;
+END $$;
+REVOKE ALL ON FUNCTION public.reject_partner_sheet_rows(uuid[]) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.reject_partner_sheet_rows(uuid[]) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.admin_save_order_shipping(p_order_id uuid,p_tracking text,
+ p_ice_small int,p_ice_medium int,p_ice_large int,p_paper_medium int,p_paper_large int)
+RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $$
+BEGIN
+ IF NOT private.is_admin() THEN RAISE EXCEPTION '관리자 권한이 필요합니다.'; END IF;
+ IF NOT EXISTS(SELECT 1 FROM public.orders WHERE id=p_order_id) THEN RAISE EXCEPTION '주문 없음'; END IF;
+ IF least(p_ice_small,p_ice_medium,p_ice_large,p_paper_medium,p_paper_large)<0 THEN
+ RAISE EXCEPTION '박스 수량은 음수일 수 없습니다.'; END IF;
+ INSERT INTO public.order_shipping_details(order_id,tracking_numbers,ice_small,ice_medium,
+ ice_large,paper_medium,paper_large)
+ VALUES (p_order_id,coalesce(trim(p_tracking),''),p_ice_small,p_ice_medium,
+ p_ice_large,p_paper_medium,p_paper_large)
+ ON CONFLICT(order_id) DO UPDATE SET tracking_numbers=excluded.tracking_numbers,
+ ice_small=excluded.ice_small,ice_medium=excluded.ice_medium,ice_large=excluded.ice_large,
+ paper_medium=excluded.paper_medium,paper_large=excluded.paper_large,updated_at=now();
+ RETURN true;
+END $$;
+REVOKE ALL ON FUNCTION public.admin_save_order_shipping(uuid,text,int,int,int,int,int) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.admin_save_order_shipping(uuid,text,int,int,int,int,int) TO authenticated;
+
+
+-- 거래처별 접수 현황. 해당 시트의 행만 반환합니다.
+CREATE OR REPLACE FUNCTION public.partner_sheet_status(p_sheet_id text,p_token_hash text)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $$
+DECLARE v_result jsonb;
+BEGIN
+ IF NOT EXISTS(SELECT 1 FROM private.partner_sheet_tokens t
+ JOIN public.partner_sheet_sources s USING(sheet_id)
+ WHERE t.sheet_id=p_sheet_id AND t.enabled AND s.enabled AND t.token_hash=p_token_hash)
+ THEN RAISE EXCEPTION '시트 연동 인증에 실패했습니다.'; END IF;
+ SELECT coalesce(jsonb_agg(jsonb_build_object('id',r.id,'source_row',r.source_row,'source_uid',r.source_uid,
+ 'ship_date',r.ship_date,'recipient',r.recipient,'status',r.status,
+ 'updated_at',r.updated_at,'approved_order_id',r.approved_order_id)
+ ORDER BY r.source_row),'[]'::jsonb) INTO v_result
+ FROM public.partner_order_rows r WHERE r.sheet_id=p_sheet_id;
+ RETURN v_result;
+END $$;
+REVOKE ALL ON FUNCTION public.partner_sheet_status(text,text) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.partner_sheet_status(text,text) TO service_role;
+
+-- 시트 관리자 입력 열(I~N) 업데이트. 한 주문에 여러 상품 행이 있어도 한 번만 처리합니다.
+CREATE OR REPLACE FUNCTION public.partner_sheet_apply_parcels(
+ p_sheet_id text,p_token_hash text,p_parcels jsonb)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $$
+DECLARE v_p jsonb; v_row public.partner_order_rows%rowtype; v_done uuid[]:=ARRAY[]::uuid[];
+ v_i int; v_m int; v_l int; v_pm int; v_pl int; v_n int:=0; v_tracking text;
+BEGIN
+ IF NOT EXISTS(SELECT 1 FROM private.partner_sheet_tokens t
+ JOIN public.partner_sheet_sources s USING(sheet_id)
+ WHERE t.sheet_id=p_sheet_id AND t.enabled AND s.enabled AND t.token_hash=p_token_hash)
+ THEN RAISE EXCEPTION '시트 연동 인증에 실패했습니다.'; END IF;
+ IF jsonb_typeof(p_parcels)<>'array' OR jsonb_array_length(p_parcels)>500
+ THEN RAISE EXCEPTION '송장정보 배열이 올바르지 않습니다.'; END IF;
+ FOR v_p IN SELECT value FROM jsonb_array_elements(p_parcels) LOOP
+   IF (v_p->>'source_uid') !~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}
+   SELECT * INTO v_row FROM public.partner_order_rows
+    WHERE sheet_id=p_sheet_id AND source_uid=(v_p->>'source_uid')::uuid AND status='승인';
+   IF NOT FOUND OR v_row.approved_order_id IS NULL OR v_row.approved_order_id=ANY(v_done)
+   THEN CONTINUE; END IF;
+   IF (v_p->>'ice_small') !~ '^[0-9]{1,4}$' OR
+      (v_p->>'ice_medium') !~ '^[0-9]{1,4}$' OR
+      (v_p->>'ice_large') !~ '^[0-9]{1,4}$' OR
+      (v_p->>'paper_medium') !~ '^[0-9]{1,4}$' OR
+      (v_p->>'paper_large') !~ '^[0-9]{1,4}$'
+   THEN CONTINUE; END IF;
+   v_tracking:=left(coalesce(trim(v_p->>'tracking_numbers'),''),1000);
+   v_i:=(v_p->>'ice_small')::int; v_m:=(v_p->>'ice_medium')::int;
+   v_l:=(v_p->>'ice_large')::int; v_pm:=(v_p->>'paper_medium')::int;
+   v_pl:=(v_p->>'paper_large')::int;
+   IF v_tracking='' AND greatest(v_i,v_m,v_l,v_pm,v_pl)=0 THEN CONTINUE; END IF;
+   INSERT INTO public.order_shipping_details(order_id,tracking_numbers,ice_small,ice_medium,
+     ice_large,paper_medium,paper_large)
+   VALUES(v_row.approved_order_id,v_tracking,v_i,v_m,v_l,v_pm,v_pl)
+   ON CONFLICT(order_id) DO UPDATE SET tracking_numbers=excluded.tracking_numbers,
+    ice_small=excluded.ice_small,ice_medium=excluded.ice_medium,ice_large=excluded.ice_large,
+    paper_medium=excluded.paper_medium,paper_large=excluded.paper_large,updated_at=now();
+   v_done:=array_append(v_done,v_row.approved_order_id);
+   v_n:=v_n+1;
+ END LOOP;
+ RETURN v_n;
+END $$;
+REVOKE ALL ON FUNCTION public.partner_sheet_apply_parcels(text,text,jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.partner_sheet_apply_parcels(text,text,jsonb) TO service_role;
+ THEN CONTINUE; END IF;
+   SELECT * INTO v_row FROM public.partner_order_rows
+    WHERE sheet_id=p_sheet_id AND source_uid=(v_p->>'source_uid')::uuid AND status='승인';
    IF NOT FOUND OR v_row.approved_order_id IS NULL OR v_row.approved_order_id=ANY(v_done)
    THEN CONTINUE; END IF;
    IF (v_p->>'ice_small') !~ '^[0-9]{1,4}$' OR
