@@ -269,7 +269,7 @@ async function stepInlineInventory(id,step){
   const plus=$('stock-plus-'+id),minus=$('stock-minus-'+id);
   if(plus)plus.disabled=true;
   if(minus)minus.disabled=true;
-  try{await saveInlineInventory(id)}finally{
+  try{const saved=await saveInlineInventory(id);if(!saved&&field.isConnected)field.value=previous;}finally{
     if(field.isConnected && !stockSaving.has(id)){
       if(plus)plus.disabled=false;
       if(minus)minus.disabled=false;
@@ -305,8 +305,10 @@ async function saveInlineInventory(id) {
     await loadAll();
     renderInventory();
     toast('재고가 '+fmt(target)+' '+(item.unit||'')+'(으)로 변경됐습니다.');
+    return true;
   }catch(e){
     toast('재고 저장 실패: '+(e.message||e));
+    return false;
   }finally{
     stockSaving.delete(id);
     if(field.isConnected)field.disabled=false;
