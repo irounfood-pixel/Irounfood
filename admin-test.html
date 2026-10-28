@@ -425,7 +425,7 @@ async function renderParcelEditor(){
    +boxes+'<td><button class="btn primary" id="parcel-save-'+o.id+'" data-id="'+o.id+'" onclick="saveInlineParcel(this.dataset.id)">저장</button></td>'
    +'</tr>';
  }).join('');
- page.innerHTML='<div class="top"><div><h1>송장·포장박스</h1><div class="muted">주문번호 옆 사진 +로 송장 입력 전에도 사진을 첨부할 수 있습니다. 입력 후 해당 행의 저장을 누르세요.</div></div><div class="toolbar"><button class="btn secondary" onclick="renderParcelEditor()">새로고침</button><button class="btn primary" onclick="exportParcelDetails()">송장·박스 엑셀 다운로드</button></div></div>'
+ page.innerHTML='<div class="top"><div><h1>송장·포장박스</h1><div class="muted">주문번호 옆 사진 +로 송장 입력 전에도 사진을 첨부할 수 있습니다. 입력 후 해당 행의 저장을 누르세요.</div></div><div class="toolbar"><button class="btn secondary" onclick="renderParcelEditor()">새로고침</button><button class="btn primary" id="parcel-export-xlsx" onclick="exportParcelDetails()">사진 포함 엑셀 다운로드</button></div></div>'
   +'<div class="panel"><p class="muted">박스 수량은 입력칸 오른쪽 위 + / 아래 − 버튼으로 1개씩 조절할 수 있습니다. 송장번호는 쉼표(,)로 구분합니다. 변경 후 행별 저장을 눌러야 엑셀에 반영됩니다.</p>'
   +'<div class="tablewrap"><table class="table parcel-table"><thead><tr><th>주문번호</th><th>발송일</th><th>수령인</th><th>송장번호</th>'+heads+'<th>저장</th></tr></thead><tbody>'
   +(rows||'<tr><td colspan="10"><div class="empty">주문이 없습니다.</div></td></tr>')+'</tbody></table></div></div>';
@@ -441,34 +441,176 @@ function openOrderPhotoManager(id){
   +'<div id="orderPhotos" style="margin-top:12px">사진 목록을 불러오는 중입니다.</div></div>');
  loadOrderPhotos(id);
 }
-function exportParcelDetails(){
- const details=window.__parcelDetails||{};
- const orders=(state.orders||[]).filter(o=>o.order_status!=='취소' && Object.prototype.hasOwnProperty.call(details,o.id))
-  .slice().sort((a,b)=>String(b.ship_date||'').localeCompare(String(a.ship_date||''))||String(a.order_no||'').localeCompare(String(b.order_no||'')));
- if(!orders.length)return toast('저장된 송장·박스 정보가 없어 다운로드할 내역이 없습니다.');
- const headers=['주문번호','주문일','발송일','주문자/기관','수령인/담당자','연락처','배송지','송장번호','아이스박스 소','아이스박스 중','아이스박스 대','종이박스 중','종이박스 대','총 박스 수','주문상태','상품명 및 수량','요청사항'];
- const rows=orders.map(o=>{
-  const d=details[o.id],counts=parcelFields.map(([key])=>Number(d[key]||0));
-  return [
-   String(o.order_no||''),String(o.order_date||''),String(o.ship_date||''),String(o.customer_name||''),
-   String(o.manager_name||o.customer_name||''),String(o.contact||''),String(o.address||''),
-   String(d.tracking_numbers||''),
-   ...counts,counts.reduce((a,b)=>a+b,0),
-   String(o.order_status||''),
-   (o.order_items||[]).map(i=>(i.product_name_snapshot||i.kit_name||'')+' × '+Number(i.quantity||0)).join(' / '),
-   String(o.note||'')
-  ];
- });
- const ws=XLSX.utils.aoa_to_sheet([headers,...rows]);
- ws['!cols']=[{wch:16},{wch:13},{wch:13},{wch:22},{wch:22},{wch:17},{wch:38},{wch:42},
-  {wch:13},{wch:13},{wch:13},{wch:13},{wch:13},{wch:12},{wch:13},{wch:42},{wch:30}];
- for(let i=0;i<rows.length;i++){
-  const cell=ws['H'+(i+2)];
-  if(cell){cell.t='s';cell.v=String(rows[i][7]);cell.z='@';}
+
+let photoExportBusy=false;
+let excelJsScriptPromise=null;
+// Only load the separate image-capable Excel engine when a user exports pictures.
+function loadImageExcelEngine(){
+ if(window.ExcelJS?.Workbook)return Promise.resolve(window.ExcelJS);
+ if(excelJsScriptPromise)return excelJsScriptPromise;
+ excelJsScriptPromise=new Promise((resolve,reject)=>{
+  const script=document.createElement('script');
+  script.src='https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
+  script.async=true;
+  script.onload=()=>window.ExcelJS?.Workbook?resolve(window.ExcelJS):reject(new Error('사진 포함 엑셀 모듈을 불러오지 못했습니다.'));
+  script.onerror=()=>reject(new Error('사진 포함 엑셀 모듈 연결에 실패했습니다. 인터넷 연결을 확인해주세요.'));
+  document.head.appendChild(script);
+ }).catch(e=>{excelJsScriptPromise=null;throw e});
+ return excelJsScriptPromise;
+}
+function photoExportHeaders(){
+ return ['주문번호','주문일','발송일','주문자/기관','수령인/담당자','연락처','배송지',
+  '송장번호','아이스박스 소','아이스박스 중','아이스박스 대','종이박스 중','종이박스 대',
+  '총 박스 수','주문상태','상품명 및 수량','요청사항','첨부사진 수'];
+}
+function photoExportOrders(){
+ // Photos are allowed before shipment details exist. Include such orders in the export.
+ return (state.orders||[]).filter(o=>o.order_status!=='취소').slice()
+  .sort((a,b)=>String(b.ship_date||'').localeCompare(String(a.ship_date||''))||
+   String(a.order_no||'').localeCompare(String(b.order_no||'')));
+}
+async function loadOrderPhotosForExcel(orders){
+ const result=[];
+ const ids=orders.map(o=>o.id);
+ for(let i=0;i<ids.length;i+=50){
+  const group=ids.slice(i,i+50);
+  for(let page=0;;page++){
+   const {data,error}=await db.from('order_photos')
+    .select('order_id,storage_path,original_name,created_at')
+    .in('order_id',group).order('created_at',{ascending:true})
+    .range(page*500,page*500+499);
+   if(error)throw new Error('첨부사진 조회 실패: '+error.message);
+   result.push(...(data||[]));
+   if(result.length>200)throw new Error('첨부사진이 200장을 초과합니다. 전체 파일이 너무 커질 수 있어 현재는 다운로드를 중단합니다.');
+   if(!data||data.length<500)break;
+  }
  }
- const workbook=XLSX.utils.book_new();
- XLSX.utils.book_append_sheet(workbook,ws,'송장포장박스');
- XLSX.writeFile(workbook,'이로운과자점_송장포장박스.xlsx');
+ return result;
+}
+async function photoBlobToExcelImage(blob){
+ const decoded=await createImageBitmap(blob);
+ try{
+  if(!decoded.width||!decoded.height)throw new Error('이미지 크기를 확인하지 못했습니다.');
+  const ratio=Math.min(1,1200/decoded.width,1200/decoded.height);
+  const canvas=document.createElement('canvas');
+  canvas.width=Math.max(1,Math.round(decoded.width*ratio));
+  canvas.height=Math.max(1,Math.round(decoded.height*ratio));
+  const ctx=canvas.getContext('2d');
+  if(!ctx)throw new Error('이미지 변환을 사용할 수 없습니다.');
+  ctx.fillStyle='#ffffff';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.drawImage(decoded,0,0,canvas.width,canvas.height);
+  const jpeg=await new Promise((resolve,reject)=>canvas.toBlob(
+   v=>v?resolve(v):reject(new Error('이미지 JPEG 변환 실패')),'image/jpeg',0.84));
+  const dataUrl=await new Promise((resolve,reject)=>{
+   const reader=new FileReader();
+   reader.onload=()=>resolve(reader.result);
+   reader.onerror=()=>reject(new Error('사진을 읽지 못했습니다.'));
+   reader.readAsDataURL(jpeg);
+  });
+  return {dataUrl,width:canvas.width,height:canvas.height};
+ }finally{if(typeof decoded.close==='function')decoded.close();}
+}
+async function exportParcelDetails(){
+ if(photoExportBusy)return;
+ const orders=photoExportOrders();
+ if(!orders.length)return toast('다운로드할 주문 내역이 없습니다.');
+ const button=$('parcel-export-xlsx');
+ photoExportBusy=true;
+ if(button){button.disabled=true;button.textContent='사진 포함 엑셀 생성 중';}
+ try{
+  const [ExcelJS,photos]=await Promise.all([loadImageExcelEngine(),loadOrderPhotosForExcel(orders)]);
+  const details=window.__parcelDetails||{};
+  const byOrder=new Map();
+  for(const photo of photos){
+   if(!byOrder.has(photo.order_id))byOrder.set(photo.order_id,[]);
+   byOrder.get(photo.order_id).push(photo);
+  }
+  const workbook=new ExcelJS.Workbook();
+  workbook.creator='이로운과자점';
+  workbook.created=new Date();
+  const summary=workbook.addWorksheet('송장포장박스');
+  const headers=photoExportHeaders();
+  summary.addRow(headers);
+  const widths=[17,13,13,24,22,19,38,42,16,16,16,16,16,15,14,45,30,14];
+  summary.columns=widths.map(w=>({width:w}));
+  summary.views=[{state:'frozen',ySplit:1}];
+  summary.autoFilter={from:'A1',to:'R1'};
+  summary.getRow(1).font={bold:true,color:{argb:'FFFFFFFF'}};
+  summary.getRow(1).fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF315C4A'}};
+  for(const order of orders){
+   const d=details[order.id]||{};
+   const boxes=parcelFields.map(([key])=>Number(d[key]||0));
+   const row=summary.addRow([
+    String(order.order_no||''),String(order.order_date||''),String(order.ship_date||''),
+    String(order.customer_name||''),String(order.manager_name||order.customer_name||''),
+    String(order.contact||''),String(order.address||''),String(d.tracking_numbers||''),
+    ...boxes,boxes.reduce((a,b)=>a+b,0),String(order.order_status||''),
+    (order.order_items||[]).map(i=>
+     String(i.product_name_snapshot||i.kit_name||'')+' × '+Number(i.quantity||0)).join(' / '),
+    String(order.note||''),(byOrder.get(order.id)||[]).length
+   ]);
+   for(const col of [1,6,8]){const cell=row.getCell(col);cell.numFmt='@';cell.value=String(cell.value??'');}
+   row.alignment={vertical:'middle'};
+   row.height=25;
+  }
+  const photosSheet=workbook.addWorksheet('주문사진');
+  photosSheet.columns=[
+   {header:'주문번호',width:18},{header:'주문자/기관',width:26},
+   {header:'배송일',width:16},{header:'파일명',width:35},
+   {header:'사진 등록일',width:23},{header:'첨부 사진',width:33}
+  ];
+  photosSheet.views=[{state:'frozen',ySplit:1}];
+  photosSheet.getRow(1).font={bold:true,color:{argb:'FFFFFFFF'}};
+  photosSheet.getRow(1).fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF315C4A'}};
+  const orderById=new Map(orders.map(o=>[o.id,o]));
+  if(!photos.length){
+   photosSheet.addRow(['등록된 주문 사진이 없습니다.']);
+  }else{
+   for(let i=0;i<photos.length;i++){
+    const photo=photos[i],order=orderById.get(photo.order_id);
+    if(!order)continue;
+    if(button)button.textContent='사진 포함 중 ('+(i+1)+'/'+photos.length+')';
+    const {data:blob,error:downloadError}=await db.storage
+     .from(ORDER_PHOTO_BUCKET).download(photo.storage_path);
+    if(downloadError||!blob)throw new Error(
+     '주문 '+order.order_no+' 사진 '+(photo.original_name||'')+'을(를) 가져오지 못했습니다: '+(downloadError?.message||'파일 없음'));
+    const converted=await photoBlobToExcelImage(blob);
+    const row=photosSheet.addRow([
+     String(order.order_no||''),String(order.customer_name||''),
+     String(order.ship_date||''),String(photo.original_name||''),
+     String(photo.created_at||'').slice(0,19).replace('T',' '),''
+    ]);
+    row.getCell(1).numFmt='@';
+    row.height=115;
+    row.alignment={vertical:'middle'};
+    const imageId=workbook.addImage({base64:converted.dataUrl,extension:'jpeg'});
+    const ratio=Math.min(190/converted.width,145/converted.height,1);
+    photosSheet.addImage(imageId,{
+     tl:{col:5,row:row.number-1},
+     ext:{width:converted.width*ratio,height:converted.height*ratio},
+     editAs:'oneCell'
+    });
+   }
+  }
+  if(button)button.textContent='엑셀 파일 생성 중';
+  const bytes=await workbook.xlsx.writeBuffer();
+  const url=URL.createObjectURL(new Blob([bytes],{
+   type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  }));
+  const link=document.createElement('a');
+  link.href=url;
+  link.download='이로운과자점_송장포장박스_주문사진포함.xlsx';
+  document.body.appendChild(link);
+  link.click();link.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),60000);
+  toast('주문 '+orders.length+'건, 첨부사진 '+photos.length+'장이 엑셀에 포함되었습니다.');
+ }catch(e){
+  toast('사진 포함 엑셀 다운로드 실패: '+(e.message||e));
+ }finally{
+  photoExportBusy=false;
+  if(button?.isConnected){button.disabled=false;button.textContent='사진 포함 엑셀 다운로드';}
+ }
 }
 
 function stepParcelBox(orderId,key,step){
