@@ -44,7 +44,13 @@ function syncAllPartnerSheets() {
 function dateString_(value,ss) {
  if(value instanceof Date && !isNaN(value.getTime()))
   return Utilities.formatDate(value,ss.getSpreadsheetTimeZone()||'Asia/Seoul','yyyy-MM-dd');
- return String(value||'').trim().replace(/[./]\s*/g,'-').replace(/\s+/g,'').replace(/-$/,'');
+ // Recognize text entered in Korean Google Sheets, including 2026. 11. 4.
+ const m=String(value??'').trim().match(/^(\d{4})[.\/-]\s*(\d{1,2})[.\/-]\s*(\d{1,2})\.?$/);
+ if(!m)return '';
+ const y=Number(m[1]),mo=Number(m[2]),d=Number(m[3]);
+ const check=new Date(Date.UTC(y,mo-1,d));
+ if(check.getUTCFullYear()!==y||check.getUTCMonth()+1!==mo||check.getUTCDate()!==d)return '';
+ return [y,String(mo).padStart(2,'0'),String(d).padStart(2,'0')].join('-');
 }
 function numberString_(value) {return String(value===''?0:value).replace(/,/g,'').trim();}
 function sourceUid_(sheet,row,used) {
