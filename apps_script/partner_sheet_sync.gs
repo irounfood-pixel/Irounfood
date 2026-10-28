@@ -7,7 +7,8 @@
  *  SHEETS_CONFIG = [{"sheet_id":"<Google Sheet ID>","token":"<서버에 해시 등록한 비밀 토큰>"}]
  *
  * 초기 설치: installPartnerSheetTriggers() 를 관리자 계정에서 한 번 실행.
- * 모든 거래처 파일에 대해 onEdit + 5분 주기 보조 검사.
+ * 모든 거래처 파일에 대해 onEdit + 5분 주기 보조 검사. 관리자 DB → 시트 I:O 일방향 갱신.
+ * 운영 전환 전에는 테스트 프로젝트로만 연결하며, 기존 Apps Script 프로젝트를 유지해야 UID가 보존됩니다.
  * Apps Script 메뉴/엑셀 업로드 UI는 이 독립형 스크립트에 포함되지 않습니다.
  */
 const ROW_KEY = 'IROUN_PARTNER_SOURCE_UID_V2';
@@ -32,7 +33,7 @@ function installPartnerSheetTriggers() {
  syncAllPartnerSheets();
 }
 function onPartnerSheetEdit(e) {
- if(!e||!e.source||!e.range||e.range.getSheet().getName()!=='주문입력')return;
+ if(!e||!e.source||!e.range||e.range.getSheet().getName()!=='주문입력'||e.range.getColumn()>8)return;
  const id=e.source.getId(), cfg=getPartnerConfigs_().find(c=>c.sheet_id===id);
  if(cfg)syncOnePartnerSheet_(cfg);
 }
@@ -77,8 +78,8 @@ function syncOnePartnerSheet_(cfg) {
   if(!endpoint || !/^https:\/\/[a-z0-9-]+\.supabase\.co\/functions\/v1\//.test(endpoint))throw new Error('EDGE_URL을 확인하세요.');
   if(last<2)return;
   if(last>20000)throw new Error('주문 시트 행 수 초과');
-  const values=sheet.getRange(2,1,last-1,14).getValues();
-  const display=sheet.getRange(2,1,last-1,14).getDisplayValues();
+  const values=sheet.getRange(2,1,last-1,8).getValues();
+  const display=sheet.getRange(2,1,last-1,8).getDisplayValues();
   const used=new Set(),rows=[];
   for(let i=0;i<values.length;i++){
    const raw=values[i],text=display[i],rowNo=i+2;
@@ -90,23 +91,20 @@ function syncOnePartnerSheet_(cfg) {
    const complete=/^\d{4}-\d{2}-\d{2}$/.test(orderDate)&&
       /^\d{4}-\d{2}-\d{2}$/.test(shipDate)&&product&&
       /^[0-9]{1,4}$/.test(qty)&&Number(qty)>0&&recipient&&contact&&address;
-   // 승인된 행의 송장/포장 데이터도 안정적 UID로 갱신
+   // 관리자 전용 I:O는 절대 서버에 업로드하지 않습니다.
    if(!complete)continue;
    const uid=sourceUid_(sheet,rowNo,used);
    const obj={source_row:rowNo,source_uid:uid,order_date:orderDate,ship_date:shipDate,
-    product_name:product,quantity:qty,recipient,contact,address,note:String(text[7]||'').trim(),
-    tracking_numbers:String(text[8]||'').trim(),
-    ice_small:numberString_(text[9]),ice_medium:numberString_(text[10]),
-    ice_large:numberString_(text[11]),paper_medium:numberString_(text[12]),
-    paper_large:numberString_(text[13])};
+    product_name:product,quantity:qty,recipient,contact,address,note:String(text[7]||'').trim()};
    rows.push(obj);
   }
   let result={status_rows:[]};
-  // Edge Function limit: 500행/호출
+  // Edge Function limit: 500행/호출. 마지막 상태 응답은 모든 DB 행을 포함합니다.
   for(let i=0;i<rows.length;i+=400)result=postPartnerRows_(endpoint,cfg,rows.slice(i,i+400));
-  // 빈 행만 있는 파일은 상태 조회가 없어 접수현황을 건드리지 않습니다.
-  if(rows.length&&result.status_rows){
+  if(!rows.length)result=postPartnerRows_(endpoint,cfg,[]);
+  if(result.status_rows){
    writePartnerStatus_(ss,result.status_rows);
+   writePartnerShipping_(ss,result.status_rows);
    protectPartnerSheet_(ss,result.status_rows);
   }
  }finally {lock.releaseLock();}
@@ -133,6 +131,42 @@ function writePartnerStatus_(ss,states) {
  if(out.length)sheet.getRange(2,1,out.length,5).setValues(out);
 }
 
+
+function writePartnerShipping_(ss,states) {
+ const sheet=ss.getSheetByName('주문입력');
+ if(!sheet)return;
+ if(sheet.getMaxColumns()<15)sheet.insertColumnsAfter(sheet.getMaxColumns(),15-sheet.getMaxColumns());
+ if(sheet.getRange('O1').getDisplayValue()!=='첨부사진 수')sheet.getRange('O1').setValue('첨부사진 수');
+ for(const item of states){
+  if(item.status!=='승인'||!item.approved_order_id)continue;
+  const row=Number(item.source_row);
+  if(!Number.isInteger(row)||row<2||row>sheet.getMaxRows())continue;
+  // Prevent wrong-row updates after sorting or moving rows. Existing UID must match.
+  const meta=sheet.getRange(row+':'+row).getDeveloperMetadata();
+  if(!meta.some(m=>m.getKey()===ROW_KEY&&m.getValue()===item.source_uid)){
+   console.warn('Source UID mismatch, skipping shipping mirror for row '+row);
+   continue;
+  }
+  const toBox=key=>{
+   const n=Number(item[key]??0);
+   if(!Number.isInteger(n)||n<0||n>1000)throw new Error('박스 수량 오류: '+key+' row '+row);
+   return n;
+  };
+  const count=Number(item.photo_count??0);
+  if(!Number.isInteger(count)||count<0||count>10000)throw new Error('사진 개수 오류: row '+row);
+  const wanted=[
+   String(item.tracking_numbers||''),toBox('ice_small'),toBox('ice_medium'),
+   toBox('ice_large'),toBox('paper_medium'),toBox('paper_large'),count
+  ];
+  const target=sheet.getRange(row,9,1,7),existing=target.getDisplayValues()[0];
+  const unchanged=wanted.every((v,i)=>String(v)===String(existing[i]||''));
+  if(unchanged)continue;
+  // Preserve tracking numbers as text to retain leading zeroes.
+  sheet.getRange(row,9).setNumberFormat('@');
+  target.setValues([wanted]);
+ }
+}
+
 function restrictPartnerProtection_(protection,email) {
  protection.setWarningOnly(false);
  protection.addEditor(email);
@@ -149,8 +183,8 @@ function protectPartnerSheet_(ss,states) {
   if(p)p.setRange(range);else {p=range.protect().setDescription(description);protections.push(p);}
   restrictPartnerProtection_(p,email);
  };
- rangeProtection(sheet.getRange('I:N'),'IROUN_ADMIN_COLUMNS_V2','관리자 전용: 송장번호와 포장박스');
- rangeProtection(sheet.getRange('A1:N1'),'IROUN_ORDER_HEADERS_V2');
+ rangeProtection(sheet.getRange('I:O'),'IROUN_ADMIN_COLUMNS_V2','관리자 전용: 송장번호와 포장박스');
+ rangeProtection(sheet.getRange('A1:O1'),'IROUN_ORDER_HEADERS_V2');
  if(status){
   let p=status.getProtections(SpreadsheetApp.ProtectionType.SHEET).find(x=>x.getDescription()==='IROUN_STATUS_V2');
   if(!p)p=status.protect().setDescription('IROUN_STATUS_V2');
