@@ -24,7 +24,16 @@ function appendPartnerExcelRows(input){
  if(!sheet)throw new Error('주문입력 탭 없음');
  const currentEnd=sheet.getLastRow();
  const existing=currentEnd<2?[]:sheet.getRange(2,1,currentEnd-1,8).getDisplayValues();
- const keyOf=r=>r.slice(0,8).map(v=>String(v??'').trim()).join('\u001f');
+ // Normalize locally formatted dates so that exported files can be uploaded again safely.
+ const normalizeDate=v=>{
+  const m=String(v??'').trim().match(/^(\d{4})[.\/-]\s*(\d{1,2})[.\/-]\s*(\d{1,2})\.?$/);
+  if(!m)return '';
+  const y=Number(m[1]),mo=Number(m[2]),d=Number(m[3]);
+  const date=new Date(Date.UTC(y,mo-1,d));
+  if(date.getUTCFullYear()!==y||date.getUTCMonth()+1!==mo||date.getUTCDate()!==d)return '';
+  return [y,String(mo).padStart(2,'0'),String(d).padStart(2,'0')].join('-');
+ };
+ const keyOf=r=>r.slice(0,8).map((v,i)=>i<2?normalizeDate(v):String(v??'').trim()).join('\u001f');
  const seen=new Set(existing.map(keyOf));
  const safe=v=>{
   const x=String(v??'').trim();
@@ -34,18 +43,20 @@ function appendPartnerExcelRows(input){
  input.forEach((row,i)=>{
   if(!Array.isArray(row)||row.length<8){errors.push(i+2+'행: 열 개수 부족');return;}
   const r=row.slice(0,8).map(safe);
-  const matchDate=x=>/^\d{4}-\d{2}-\d{2}$/.test(x);
-  if(!matchDate(r[0])||!matchDate(r[1])||!r[2]||
+  r[0]=normalizeDate(r[0]);r[1]=normalizeDate(r[1]);
+  if(!r[0]||!r[1]||!r[2]||
     !/^\d+$/.test(r[3])||Number(r[3])<1||Number(r[3])>1000||
     !r[4]||!r[5]||!r[6]){errors.push(i+2+'행: 필수값/날짜/수량 오류');return;}
   if(seen.has(keyOf(r))){skipped++;return;}
-  seen.add(keyOf(r));added.push([...r,'','','','','','']);
+  seen.add(keyOf(r));added.push(r);
  });
  if(errors.length)return {ok:false,errors:errors.slice(0,30),added:0,skipped};
  if(added.length){
   if(sheet.getMaxRows()<currentEnd+added.length)sheet.insertRowsAfter(sheet.getMaxRows(),currentEnd+added.length-sheet.getMaxRows());
-  sheet.getRange(currentEnd+1,1,added.length,14).setValues(added);
+  // Only A:H are customer-editable. NEVER write into protected administrator I:N columns.
+  // Apply the text format before writing so that leading zeroes in contact numbers survive.
   sheet.getRange(currentEnd+1,6,added.length,1).setNumberFormat('@');
+  sheet.getRange(currentEnd+1,1,added.length,8).setValues(added);
  }
  return {ok:true,added:added.length,skipped,errors:[]};
 }
