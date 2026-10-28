@@ -15,6 +15,8 @@
 .stock-inline{display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-width:330px}.stock-inline b{margin-right:4px}.stock-qty-input{width:102px;min-height:42px;border:1px solid #cbd8cf;border-radius:9px;padding:8px;font:inherit}.stock-qty-input:focus{outline:2px solid #477762;outline-offset:1px}.stock-inline button{min-height:38px;padding:8px 12px}.stock-inline button:disabled{opacity:.6;cursor:wait}.stock-step-btn{min-width:34px;min-height:38px;padding:5px 9px;border:1px solid #cad8ce;border-radius:8px;background:#f1f6f2;color:#315c4a;font-size:19px;font-weight:800;line-height:1}.stock-step-btn:active{background:#d9e8de}.stock-step-btn:focus-visible{outline:2px solid #315c4a;outline-offset:2px}
 
 .parcel-table{min-width:1390px}.parcel-table td{vertical-align:middle}.parcel-track-input{width:225px;min-height:40px;padding:7px 10px;border:1px solid #ced9d1;border-radius:8px}.parcel-qty-input{width:75px;min-height:40px;padding:7px;border:1px solid #ced9d1;border-radius:8px}
+
+.order-photo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(115px,1fr));gap:10px}.order-photo-item{padding:8px;border:1px solid #dce7de;border-radius:10px;min-width:0}.order-photo-item img{display:block;width:100%;height:100px;object-fit:cover;border-radius:6px}.order-photo-item .photo-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:7px 0}.order-photo-item button{padding:6px 9px;min-height:30px}.modalbox{width:min(850px,100%)}
 </style>
 </head>
 <body><div role="status" style="position:sticky;top:0;z-index:1000;padding:10px 14px;background:#e8f4ee;color:#24563b;border-bottom:1px solid #c7e4d2;text-align:center;font:700 13px/1.45 system-ui,-apple-system,sans-serif">테스트 전용 · 실제 주문/출고 금지 · 운영 데이터와 분리된 검증용 서버에 연결됩니다.</div>
@@ -153,7 +155,73 @@ function exportShippedOrders(){
 }
 
 function showCalendarDate(ds){const os=state.orders.filter(o=>o.ship_date===ds&&o.order_status!=='취소').sort((a,b)=>String(a.order_no||'').localeCompare(String(b.order_no||'')));const totals=new Map();os.forEach(o=>(o.order_items||[]).forEach(i=>{const name=i.product_name_snapshot||i.kit_name||'상품명 미상';totals.set(name,(totals.get(name)||0)+Number(i.quantity||0))}));const sum=[...totals.entries()].sort((a,b)=>a[0].localeCompare(b[0],'ko')).map(([n,q])=>`<div>${esc(n)} <b>${fmt(q)}개</b></div>`).join('')||'<div class="empty">해당 날짜 주문이 없습니다.</div>';const detail=os.map(o=>`<tr><td>${esc(o.order_no||'')}</td><td>${esc(o.customer_name||'')}</td><td>${esc(o.address||'주소 정보 없음')}</td><td>${(o.order_items||[]).map(i=>`${esc(i.product_name_snapshot||i.kit_name)} × ${fmt(i.quantity)}`).join('<br>')}</td><td><span class="badge ${o.order_status==='출고완료'?'good':'warn'}">${esc(o.order_status||'주문접수')}</span></td><td><button class="btn light" onclick="closeModal();openOrder('${o.id}')">주문 상세</button></td></tr>`).join('');openModal(`<div class="between"><div><h2 style="margin:0">${esc(ds)} 주문 내역</h2><div class="muted">상품별 합계와 개별 주문을 함께 확인합니다.</div></div><button class="btn light" onclick="closeModal()">닫기</button></div><div class="panel"><h3 style="margin-top:0">상품별 합계</h3>${sum}</div><div class="panel"><h3 style="margin-top:0">주문별 내역 (${os.length}건)</h3><div class="tablewrap"><table class="table"><thead><tr><th>주문번호</th><th>주문자/기관</th><th>배송지</th><th>상품·수량</th><th>상태</th><th>처리</th></tr></thead><tbody>${detail||'<tr><td colspan="6">주문 없음</td></tr>'}</tbody></table></div></div>`)}
-function openOrder(id){const o=state.orders.find(x=>x.id===id);if(!o)return;openModal(`<div class="between"><h2 style="margin:0">주문 ${esc(o.order_no)}</h2><button class="btn light" onclick="closeModal()">닫기</button></div><div class="panel" style="margin-top:14px"><div class="formgrid"><div><b>고객/기관</b><div>${esc(o.customer_name||'')}</div></div><div><b>연락처</b><div>${esc(o.contact||'')}</div></div><div><b>배송일</b><div>${esc(o.ship_date||'')}</div></div><div><b>배송지</b><div>${esc(o.address||'주소 정보 없음')}</div></div><div><b>주문경로</b><div>${esc(o.order_source||'')}</div></div><div><b>요청사항</b><div>${esc(o.note||'')}</div></div></div><div style="margin-top:16px"><b>상품</b>${(o.order_items||[]).map(i=>`<div style="padding:8px 0;border-bottom:1px solid var(--line)">${esc(i.product_name_snapshot||i.kit_name)} × ${fmt(i.quantity)}</div>`).join('')}</div><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">${o.order_status!=='출고완료'&&o.order_status!=='취소'?`<button class="btn primary" onclick="shipOrder('${o.id}')">출고완료 처리</button>`:''}${o.order_status!=='출고완료'&&o.order_status!=='취소'?`<button class="btn danger" onclick="cancelOrder('${o.id}')">주문 취소</button>`:''}</div></div>`)}
+function openOrder(id){const o=state.orders.find(x=>x.id===id);if(!o)return;openModal(`<div class="between"><h2 style="margin:0">주문 ${esc(o.order_no)}</h2><button class="btn light" onclick="closeModal()">닫기</button></div><div class="panel" style="margin-top:14px"><div class="formgrid"><div><b>고객/기관</b><div>${esc(o.customer_name||'')}</div></div><div><b>연락처</b><div>${esc(o.contact||'')}</div></div><div><b>배송일</b><div>${esc(o.ship_date||'')}</div></div><div><b>배송지</b><div>${esc(o.address||'주소 정보 없음')}</div></div><div><b>주문경로</b><div>${esc(o.order_source||'')}</div></div><div><b>요청사항</b><div>${esc(o.note||'')}</div></div></div><div style="margin-top:16px"><b>상품</b>${(o.order_items||[]).map(i=>`<div style="padding:8px 0;border-bottom:1px solid var(--line)">${esc(i.product_name_snapshot||i.kit_name)} × ${fmt(i.quantity)}</div>`).join('')}</div><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">${o.order_status!=='출고완료'&&o.order_status!=='취소'?`<button class="btn primary" onclick="shipOrder('${o.id}')">출고완료 처리</button>`:''}${o.order_status!=='출고완료'&&o.order_status!=='취소'?`<button class="btn danger" onclick="cancelOrder('${o.id}')">주문 취소</button>`:''}</div></div><div class="panel" style="margin-top:14px"><h3 style="margin:0 0 9px">주문 사진 첨부</h3><div class="muted">주문번호에 연결해 보관합니다. JPG·PNG·WEBP / 사진 1장당 최대 5MB / 한 번에 10장.</div><div class="toolbar" style="margin-top:10px"><input id="orderPhotoInput" type="file" accept="image/jpeg,image/png,image/webp" multiple aria-label="주문 사진 선택"><button class="btn secondary" id="orderPhotoUpload" onclick="uploadOrderPhotos('${o.id}')">사진 올리기</button></div><div id="orderPhotos" style="margin-top:12px">사진 목록을 불러오는 중입니다.</div></div>`);loadOrderPhotos(id)}
+
+const ORDER_PHOTO_BUCKET='iroun-order-photos';
+const PHOTO_LIMIT=5242880;
+const photoBusy=new Set();
+async function loadOrderPhotos(orderId){
+ const panel=$('orderPhotos');
+ if(!panel)return;
+ panel.textContent='사진을 불러오는 중입니다.';
+ const {data,error}=await db.from('order_photos').select('id,order_id,storage_path,original_name,created_at').eq('order_id',orderId).order('created_at',{ascending:false});
+ if(!panel.isConnected)return;
+ if(error){panel.textContent='사진 조회 실패: '+error.message;return}
+ if(!data?.length){panel.innerHTML='<div class="muted">등록된 사진이 없습니다.</div>';return}
+ const entries=await Promise.all(data.map(async photo=>{
+  const {data:link,error:linkError}=await db.storage.from(ORDER_PHOTO_BUCKET).createSignedUrl(photo.storage_path,300);
+  return {photo,url:linkError?'':link?.signedUrl||''};
+ }));
+ if(!panel.isConnected||panel!==$('orderPhotos'))return;
+ panel.innerHTML='<div class="order-photo-grid">'+entries.map(({photo,url})=>
+  '<div class="order-photo-item">'+(url?'<a target="_blank" rel="noopener noreferrer" href="'+esc(url)+'"><img loading="lazy" src="'+esc(url)+'" alt="'+esc(photo.original_name)+'"></a>':'<div class="muted">미리보기 오류</div>')
+  +'<div class="mini photo-name">'+esc(photo.original_name)+'</div>'
+  +'<button class="btn light" data-photo-id="'+photo.id+'" data-order-id="'+orderId+'" onclick="removeOrderPhoto(this.dataset.photoId,this.dataset.orderId)">삭제</button></div>'
+ ).join('')+'</div>';
+}
+async function uploadOrderPhotos(orderId){
+ const order=state.orders.find(x=>x.id===orderId);
+ const input=$('orderPhotoInput'),button=$('orderPhotoUpload');
+ if(!order||!input||!button||photoBusy.has(orderId))return;
+ const files=Array.from(input.files||[]);
+ if(!files.length)return toast('사진을 선택해주세요.');
+ if(files.length>10)return toast('한 번에 최대 10장까지 업로드할 수 있습니다.');
+ const validTypes={'image/jpeg':'jpg','image/png':'png','image/webp':'webp'};
+ for(const file of files){
+  if(!validTypes[file.type]||file.size<=0||file.size>PHOTO_LIMIT)return toast('JPG·PNG·WEBP, 파일당 5MB 이하만 업로드할 수 있습니다.');
+ }
+ photoBusy.add(orderId);input.disabled=true;button.disabled=true;button.textContent='업로드 중';
+ let completed=0;
+ try{
+  for(const file of files){
+   const storagePath=orderId+'/'+crypto.randomUUID()+'.'+validTypes[file.type];
+   const {error:uploadError}=await db.storage.from(ORDER_PHOTO_BUCKET).upload(storagePath,file,{cacheControl:'3600',contentType:file.type,upsert:false});
+   if(uploadError)throw uploadError;
+   const {error:metadataError}=await db.from('order_photos').insert({
+    order_id:orderId,storage_path:storagePath,original_name:file.name.slice(0,255),content_type:file.type,size_bytes:file.size
+   });
+   if(metadataError){await db.storage.from(ORDER_PHOTO_BUCKET).remove([storagePath]);throw metadataError;}
+   completed++;
+  }
+  toast('주문 '+order.order_no+' 사진 '+completed+'장 등록 완료');
+ }catch(e){toast('사진 업로드 오류 ('+completed+'장 완료): '+(e.message||e))}
+ finally{
+  photoBusy.delete(orderId);input.disabled=false;button.disabled=false;button.textContent='사진 올리기';input.value='';
+  await loadOrderPhotos(orderId);
+ }
+}
+async function removeOrderPhoto(photoId,orderId){
+ if(!confirm('선택한 주문 사진을 삭제할까요?'))return;
+ const {data:photo,error:readError}=await db.from('order_photos').select('storage_path').eq('id',photoId).eq('order_id',orderId).single();
+ if(readError)return toast('사진 확인 실패: '+readError.message);
+ const {error:storageError}=await db.storage.from(ORDER_PHOTO_BUCKET).remove([photo.storage_path]);
+ if(storageError)return toast('사진 파일 삭제 실패: '+storageError.message);
+ const {error:deleteError}=await db.from('order_photos').delete().eq('id',photoId).eq('order_id',orderId);
+ if(deleteError)return toast('사진 정보 삭제 실패: '+deleteError.message);
+ toast('사진을 삭제했습니다.');
+ loadOrderPhotos(orderId);
+}
+
 async function shipOrder(id){try{const {data,error}=await db.rpc('ship_order_v2',{p_order_id:id});if(error)throw error;toast('출고완료 및 재고 차감이 처리되었습니다.');closeModal();await init();route('orders')}catch(e){toast('출고 처리 실패: '+(e.message||e))}}
 async function cancelOrder(id){const o=state.orders.find(x=>x.id===id);if(!o)return;if(o.order_status==='출고완료')return toast('출고완료 주문은 여기서 취소할 수 없습니다.');if(o.order_status==='취소')return toast('이미 취소된 주문입니다.');if(!confirm('이 주문을 취소할까요?\\n\\n고객 주문에서 승인된 건이면 주문신청을 다시 “신청” 상태로 돌려놓습니다.'))return;try{const {data:didCancel,error}=await db.rpc('cancel_order_v2',{p_order_id:id});if(error)throw error;if(didCancel===false)return toast('이미 취소된 주문입니다.');toast('주문이 취소되었습니다. 고객 주문신청이 있으면 다시 검토할 수 있도록 되돌렸습니다.');closeModal();await init();route('orders')}catch(e){toast('취소 실패: '+(e.message||e))}}
 function exportOrders(){const rows=orderRows().filter(r=>r.order.order_status!=='취소'&&r.order.order_status!=='출고완료').map(r=>({주문번호:r.order.order_no,주문일:r.order.order_date||'',주문경로:r.order.order_source||'',고객기관명:r.order.customer_name||'',담당자:r.order.manager_name||'',연락처:r.order.contact||'',배송일:r.order.ship_date||'',배송지:r.order.address||'',수령방법:r.order.receive_method||'',상품명:r.product_name_snapshot||r.kit_name||'',수량:r.quantity||0,주문상태:r.order.order_status||'',결제상태:r.order.payment_status||'',요청사항:r.order.note||''}));const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'주문내역');XLSX.writeFile(wb,'이로운과자점_주문내역.xlsx')}
