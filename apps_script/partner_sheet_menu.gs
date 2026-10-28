@@ -2,7 +2,7 @@
 // 거래처용 시트에만 설치하는 컨테이너 바인딩 Apps Script.
 // 관리자 DB 인증정보/시트 동기화 토큰은 절대로 여기에 넣지 않습니다.
 const ORDER_HEADERS=['주문일','발송일','상품명','수량','수령인','연락처','배송지','요청사항',
- '송장번호','아이스박스 소','아이스박스 중','아이스박스 대','종이박스 중','종이박스 대'];
+ '송장번호','아이스박스 소','아이스박스 중','아이스박스 대','종이박스 중','종이박스 대','첨부사진 수'];
 function onOpen(){
  SpreadsheetApp.getUi().createMenu('이로운과자점')
  .addItem('엑셀 업로드 / 다운로드','openPartnerExcelDialog').addToUi();
@@ -16,7 +16,7 @@ function getPartnerRowsForExport(){
  const sheet=SpreadsheetApp.getActiveSpreadsheet().getSheetByName('주문입력');
  if(!sheet)throw new Error('주문입력 탭 없음');
  const end=sheet.getLastRow();
- const values=end<2?[]:sheet.getRange(2,1,end-1,14).getDisplayValues();
+ const values=end<2?[]:sheet.getRange(2,1,end-1,15).getDisplayValues();
  return {headers:ORDER_HEADERS,rows:values.filter(r=>r.some(x=>String(x).trim()))};
 }
 function appendPartnerExcelRows(input){
@@ -54,7 +54,7 @@ function appendPartnerExcelRows(input){
  if(errors.length)return {ok:false,errors:errors.slice(0,30),added:0,skipped};
  if(added.length){
   if(sheet.getMaxRows()<currentEnd+added.length)sheet.insertRowsAfter(sheet.getMaxRows(),currentEnd+added.length-sheet.getMaxRows());
-  // Only A:H are customer-editable. NEVER write into protected administrator I:N columns.
+  // Only A:H are customer-editable. NEVER write into protected administrator I:O columns.
   // Apply the text format before writing so that leading zeroes in contact numbers survive.
   sheet.getRange(currentEnd+1,6,added.length,1).setNumberFormat('@');
   sheet.getRange(currentEnd+1,1,added.length,8).setValues(added);
