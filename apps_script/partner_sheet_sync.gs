@@ -159,7 +159,7 @@ function writePartnerShipping_(ss,states) {
    toBox('ice_large'),toBox('paper_medium'),toBox('paper_large'),count
   ];
   const target=sheet.getRange(row,9,1,7),existing=target.getDisplayValues()[0];
-  const unchanged=wanted.every((v,i)=>String(v)===String(existing[i]||''));
+  const unchanged=wanted.every((v,i)=>String(v)===String(existing[i]??''));
   if(unchanged)continue;
   // Preserve tracking numbers as text to retain leading zeroes.
   sheet.getRange(row,9).setNumberFormat('@');
