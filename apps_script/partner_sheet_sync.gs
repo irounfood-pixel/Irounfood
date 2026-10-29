@@ -103,6 +103,8 @@ function syncOnePartnerSheet_(cfg) {
   for(let i=0;i<rows.length;i+=400)result=postPartnerRows_(endpoint,cfg,rows.slice(i,i+400));
   if(!rows.length)result=postPartnerRows_(endpoint,cfg,[]);
   if(result.status_rows){
+   // Remove only rows that were explicitly deleted via authenticated DB action.
+   if(Array.isArray(result.deleted_uids))removeDeletedPartnerRows_(sheet,result.deleted_uids);
    writePartnerStatus_(ss,result.status_rows);
    writePartnerShipping_(ss,result.status_rows);
    protectPartnerSheet_(ss,result.status_rows);
@@ -119,6 +121,16 @@ function postPartnerRows_(endpoint,cfg,rows) {
  const body=JSON.parse(res.getContentText()||'{}');
  if(res.getResponseCode()!==200||!body.ok)throw new Error('연동 실패: HTTP '+res.getResponseCode()+' '+(body.error||''));
  return body;
+}
+function removeDeletedPartnerRows_(sheet,sourceUids) {
+ const deleted=new Set(sourceUids.map(String));
+ if(!deleted.size)return;
+ for(let row=sheet.getLastRow();row>=2;row--){
+  const meta=sheet.getRange(row+':'+row).getDeveloperMetadata();
+  if(meta.some(m=>m.getKey()===ROW_KEY&&deleted.has(String(m.getValue())))){
+   sheet.deleteRow(row);
+  }
+ }
 }
 function writePartnerStatus_(ss,states) {
  const sheet=ss.getSheetByName('접수현황');if(!sheet)return;
@@ -138,13 +150,19 @@ function writePartnerShipping_(ss,states) {
  if(sheet.getMaxColumns()<15)sheet.insertColumnsAfter(sheet.getMaxColumns(),15-sheet.getMaxColumns());
  if(sheet.getRange('O1').getDisplayValue()!=='첨부사진 수')sheet.getRange('O1').setValue('첨부사진 수');
  for(const item of states){
-  if(item.status!=='승인'||!item.approved_order_id)continue;
   const row=Number(item.source_row);
   if(!Number.isInteger(row)||row<2||row>sheet.getMaxRows())continue;
   // Prevent wrong-row updates after sorting or moving rows. Existing UID must match.
   const meta=sheet.getRange(row+':'+row).getDeveloperMetadata();
   if(!meta.some(m=>m.getKey()===ROW_KEY&&m.getValue()===item.source_uid)){
    console.warn('Source UID mismatch, skipping shipping mirror for row '+row);
+   continue;
+  }
+  // Once approval is canceled, remove old shipping mirror values so registered
+  // orders do not display the canceled order's tracking or box quantities.
+  if(item.status!=='승인'||!item.approved_order_id){
+   const cells=sheet.getRange(row,9,1,7);
+   if(cells.getDisplayValues()[0].some(String))cells.clearContent();
    continue;
   }
   const toBox=key=>{
@@ -189,6 +207,11 @@ function protectPartnerSheet_(ss,states) {
   let p=status.getProtections(SpreadsheetApp.ProtectionType.SHEET).find(x=>x.getDescription()==='IROUN_STATUS_V2');
   if(!p)p=status.protect().setDescription('IROUN_STATUS_V2');
   restrictPartnerProtection_(p,email);
+ }
+ // Release locks on rows returned to registration after approval cancellation.
+ const approved=new Set(states.filter(s=>s.status==='승인').map(s=>'IROUN_APPROVED_V2:'+s.source_uid));
+ for(const p of protections){
+  if(p.getDescription().startsWith('IROUN_APPROVED_V2:')&&!approved.has(p.getDescription()))p.remove();
  }
  for(const state of states.filter(s=>s.status==='승인')){
   const row=Number(state.source_row);
