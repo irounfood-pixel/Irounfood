@@ -501,6 +501,16 @@ function parcelOrders(details=window.__parcelDetails||{}){
   });
 }
 
+function reorderParcelRows(){
+ if(state.page!=='parcel')return;
+ const body=document.querySelector('.parcel-table tbody');
+ if(!body)return;
+ for(const order of parcelOrders()){
+  const row=$('parcel-save-'+order.id)?.closest('tr');
+  if(row?.parentElement===body)body.appendChild(row);
+ }
+}
+
 async function renderParcelEditor(){
  const page=$('page');
  page.innerHTML='<div class="top"><h1>송장·포장박스</h1></div><div class="panel">출고정보를 불러오는 중입니다.</div>';
@@ -803,6 +813,7 @@ async function saveInlineParcel(id){
   const {data:updated,error:refreshError}=await db.from('order_shipping_details').select('*').eq('order_id',id).single();
   if(refreshError)throw refreshError;
   window.__parcelDetails[id]=updated;
+  reorderParcelRows();
   toast('주문 '+order.order_no+' 송장·박스 저장 완료');
  }catch(e){toast('출고정보 저장 실패: '+(e.message||e))}
  finally{parcelBusy.delete(id);button.disabled=false;button.textContent='저장';}
