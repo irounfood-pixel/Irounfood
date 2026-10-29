@@ -218,7 +218,7 @@ async function saveOrder(){
  }catch(e){toast('저장 실패: '+(e.message||e))}
 }
 function renderOrders(){const q=(window.__orderq||'').toLowerCase();const selectedStatus=window.__orderStatus||'전체';const status=['전체','주문접수','준비중'].includes(selectedStatus)?selectedStatus:'전체';const rows=state.orders.filter(o=>o.order_status!=='취소'&&o.order_status!=='출고완료'&&(status==='전체'||(o.order_status||'주문접수')===status)&&(!q||JSON.stringify(o).toLowerCase().includes(q)));$('page').innerHTML=`<div class="top"><div><h1>주문현황</h1><div class="muted">미출고 주문을 검색하고 엑셀로 다운로드할 수 있습니다. 출고완료 내역은 별도 메뉴에서 확인하세요.</div></div><div class="toolbar"><input placeholder="주문번호 / 고객명 / 상품 검색" value="${esc(window.__orderq||'')}" oninput="window.__orderq=this.value;renderOrders()"><select onchange="window.__orderStatus=this.value;renderOrders()"><option>전체</option><option>주문접수</option><option>준비중</option></select><button class="btn secondary" onclick="exportOrders()">엑셀 다운로드</button><button class="btn primary" onclick="route('order')">+ 주문등록</button></div></div>
- <div class="panel"><div class="tablewrap"><table class="table"><thead><tr><th>주문번호</th><th>고객/기관</th><th>연락처</th><th>배송일</th><th>상품</th><th>수량</th><th>상태</th><th></th></tr></thead><tbody>${rows.length?rows.map(o=>`<tr><td><b>${esc(o.order_no)}</b></td><td>${esc(o.customer_name||o.address||'')}</td><td>${esc(o.contact||'')}</td><td>${esc(o.ship_date||'')}</td><td>${(o.order_items||[]).map(i=>esc(i.product_name_snapshot||i.kit_name)).join('<br>')}</td><td>${(o.order_items||[]).map(i=>fmt(i.quantity)).join('<br>')}</td><td><span class="badge ${o.order_status==='출고완료'?'good':o.order_status==='취소'?'danger':'warn'}">${esc(o.order_status||'주문접수')}</span></td><td><button class="btn light" onclick="openOrder('${o.id}')">상세</button></td></tr>`).join(''):`<tr><td colspan="8"><div class="empty">주문이 없습니다.</div></td></tr>`}</tbody></table></div></div>`}
+ <div class="panel"><div class="tablewrap"><table class="table"><thead><tr><th>주문번호</th><th>고객/기관</th><th>연락처</th><th>배송일</th><th>상품</th><th>수량</th><th>상태</th><th></th></tr></thead><tbody>${rows.length?rows.map(o=>`<tr><td><b>${esc(o.order_no)}</b></td><td>${esc(o.customer_name||o.address||'')}</td><td>${esc(o.contact||'')}</td><td>${esc(o.ship_date||'')}</td><td>${(o.order_items||[]).map(i=>esc(i.product_name_snapshot||i.kit_name)).join('<br>')}</td><td>${(o.order_items||[]).map(i=>fmt(i.quantity)).join('<br>')}</td><td><span class="badge ${o.order_status==='출고완료'?'good':o.order_status==='취소'?'danger':'warn'}">${esc(o.order_status||'주문접수')}</span></td><td><button class="btn light" onclick="openOrder('${o.id}')">상세</button> ${canEditOrder(o)?`<button class="btn secondary" onclick="openEditOrder('${o.id}')">수정</button>`:''}</td></tr>`).join(''):`<tr><td colspan="8"><div class="empty">주문이 없습니다.</div></td></tr>`}</tbody></table></div></div>`}
 function renderOrderProcessing(){const rows=state.orders.filter(o=>o.order_status!=='취소').sort((a,b)=>(a.ship_date||'').localeCompare(b.ship_date||'')||String(a.order_no||'').localeCompare(String(b.order_no||'')));$('page').innerHTML=`<div class="top"><div><h1>주문처리</h1><div class="muted">주문 상세에서 출고완료 처리 시 연결된 재고가 자동 차감됩니다. 재고관리의 수동 차감은 주문 출고와 별개입니다.</div></div><div class="toolbar"><button class="btn secondary" onclick="init()">새로고침</button><button class="btn light" onclick="route('orders')">전체 주문현황</button></div></div><div class="panel"><div class="tablewrap"><table class="table"><thead><tr><th>배송일</th><th>주문번호</th><th>주문자/기관</th><th>배송지</th><th>상품 및 수량</th><th>상태</th><th>처리</th></tr></thead><tbody>${rows.length?rows.map(o=>`<tr><td>${esc(o.ship_date||'')}</td><td><b>${esc(o.order_no||'')}</b></td><td>${esc(o.customer_name||'')}</td><td>${esc(o.address||'주소 정보 없음')}</td><td>${(o.order_items||[]).map(i=>`${esc(i.product_name_snapshot||i.kit_name)} × ${fmt(i.quantity)}`).join('<br>')}</td><td><span class="badge ${o.order_status==='출고완료'?'good':'warn'}">${esc(o.order_status||'주문접수')}</span></td><td><button class="btn primary" onclick="openOrder('${o.id}')">상세 / 처리</button></td></tr>`).join(''):`<tr><td colspan="7"><div class="empty">처리할 주문이 없습니다.</div></td></tr>`}</tbody></table></div></div>`}
 function renderShippedOrders(){
  const rows=state.orders.filter(o=>o.order_status==='출고완료').sort((a,b)=>(b.ship_date||'').localeCompare(a.ship_date||'')||String(b.order_no||'').localeCompare(String(a.order_no||'')));
@@ -237,7 +237,63 @@ function exportShippedOrders(){
 }
 
 function showCalendarDate(ds){const os=state.orders.filter(o=>o.ship_date===ds&&o.order_status!=='취소').sort((a,b)=>String(a.order_no||'').localeCompare(String(b.order_no||'')));const totals=new Map();os.forEach(o=>(o.order_items||[]).forEach(i=>{const name=i.product_name_snapshot||i.kit_name||'상품명 미상';totals.set(name,(totals.get(name)||0)+Number(i.quantity||0))}));const sum=[...totals.entries()].sort((a,b)=>a[0].localeCompare(b[0],'ko')).map(([n,q])=>`<div>${esc(n)} <b>${fmt(q)}개</b></div>`).join('')||'<div class="empty">해당 날짜 주문이 없습니다.</div>';const detail=os.map(o=>`<tr><td>${esc(o.order_no||'')}</td><td>${esc(o.customer_name||'')}</td><td>${esc(o.address||'주소 정보 없음')}</td><td>${(o.order_items||[]).map(i=>`${esc(i.product_name_snapshot||i.kit_name)} × ${fmt(i.quantity)}`).join('<br>')}</td><td><span class="badge ${o.order_status==='출고완료'?'good':'warn'}">${esc(o.order_status||'주문접수')}</span></td><td><button class="btn light" onclick="closeModal();openOrder('${o.id}')">주문 상세</button></td></tr>`).join('');openModal(`<div class="between"><div><h2 style="margin:0">${esc(ds)} 주문 내역</h2><div class="muted">상품별 합계와 개별 주문을 함께 확인합니다.</div></div><button class="btn light" onclick="closeModal()">닫기</button></div><div class="panel"><h3 style="margin-top:0">상품별 합계</h3>${sum}</div><div class="panel"><h3 style="margin-top:0">주문별 내역 (${os.length}건)</h3><div class="tablewrap"><table class="table"><thead><tr><th>주문번호</th><th>주문자/기관</th><th>배송지</th><th>상품·수량</th><th>상태</th><th>처리</th></tr></thead><tbody>${detail||'<tr><td colspan="6">주문 없음</td></tr>'}</tbody></table></div></div>`)}
-function openOrder(id){const o=state.orders.find(x=>x.id===id);if(!o)return;openModal(`<div class="between"><h2 style="margin:0">주문 ${esc(o.order_no)}</h2><button class="btn light" onclick="closeModal()">닫기</button></div><div class="panel" style="margin-top:14px"><div class="formgrid"><div><b>고객/기관</b><div>${esc(o.customer_name||'')}</div></div><div><b>연락처</b><div>${esc(o.contact||'')}</div></div><div><b>배송일</b><div>${esc(o.ship_date||'')}</div></div><div><b>배송지</b><div>${esc(o.address||'주소 정보 없음')}</div></div><div><b>주문경로</b><div>${esc(o.order_source||'')}</div></div><div><b>요청사항</b><div>${esc(o.note||'')}</div></div></div><div style="margin-top:16px"><b>상품</b>${(o.order_items||[]).map(i=>`<div style="padding:8px 0;border-bottom:1px solid var(--line)">${esc(i.product_name_snapshot||i.kit_name)} × ${fmt(i.quantity)}</div>`).join('')}</div><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">${o.order_status!=='출고완료'&&o.order_status!=='취소'?`<button class="btn primary" onclick="shipOrder('${o.id}')">출고완료 처리</button>`:''}${o.order_status!=='출고완료'&&o.order_status!=='취소'?`<button class="btn danger" onclick="cancelOrder('${o.id}')">주문 취소</button>`:''}</div></div>`)}
+
+function canEditOrder(order){return order&&['주문접수','준비중'].includes(order.order_status);}
+function openEditOrder(id){
+ const o=state.orders.find(x=>x.id===id);
+ if(!canEditOrder(o))return toast('출고 전 주문접수·준비중 주문만 수정할 수 있습니다.');
+ window.__editingOrder={id:o.id,updated_at:o.updated_at,busy:false};
+ const field=(label,id,value,type='text')=>'<div class="field"><label for="'+id+'">'+label+'</label><input id="'+id+'" type="'+type+'" value="'+esc(value||'')+'"></div>';
+ openModal('<div class="between"><h2 style="margin:0">주문 '+esc(o.order_no)+' 수정</h2><button type="button" class="btn light" onclick="closeModal()">닫기</button></div>'
+  +'<p class="muted">승인된 주문을 관리자가 수정합니다. 저장 시 재고는 차감되지 않습니다.</p><div class="formgrid">'
+  +field('주문일','edit-order-date',o.order_date,'date')+field('기관/고객명 *','edit-order-customer',o.customer_name)
+  +field('담당자/수령인','edit-order-manager',o.manager_name)+field('연락처','edit-order-contact',o.contact)
+  +field('배송일 *','edit-order-ship',o.ship_date,'date')
+  +'<div class="field"><label for="edit-order-method">수령방법</label><select id="edit-order-method"><option value="택배">택배</option><option value="방문수령">방문수령</option></select></div>'
+  +field('배송지 *','edit-order-address',o.address)
+  +'<div class="field"><label for="edit-order-note">요청사항</label><textarea id="edit-order-note">'+esc(o.note||'')+'</textarea></div></div>'
+  +'<div class="between" style="margin:18px 0 10px"><h3 style="margin:0">상품·수량</h3><button type="button" class="btn secondary" onclick="addEditOrderLine()">+ 상품 추가</button></div><div id="edit-order-lines"></div>'
+  +'<div class="toolbar" style="justify-content:flex-end;margin-top:16px"><button type="button" class="btn light" onclick="closeModal()">취소</button><button type="button" class="btn primary" id="edit-order-save" onclick="saveEditedOrder()">수정 저장</button></div>');
+ $('edit-order-method').value=o.receive_method||'택배';
+ for(const item of o.order_items||[])addEditOrderLine(item);
+ if(!(o.order_items||[]).length)addEditOrderLine();
+}
+function addEditOrderLine(item=null){
+ const host=$('edit-order-lines');if(!host)return;
+ const row=document.createElement('div');row.className='kitrow';row.dataset.itemId=item?String(item.id):'';
+ const selected=item?.product_id||'';
+ let options=activeProducts().map(p=>'<option value="'+esc(p.id)+'">'+esc(p.name)+'</option>').join('');
+ if(item&&!activeProducts().some(p=>p.id===selected))options='<option value="'+esc(selected)+'">'+esc(item.product_name_snapshot||item.kit_name||'기존 상품')+' (기존 주문)</option>'+options;
+ row.innerHTML='<div class="field"><label>상품</label><select class="edit-order-product" aria-label="수정할 상품">'+options+'</select></div>'
+  +'<div class="field"><label>수량</label><input class="edit-order-qty" aria-label="수정할 수량" type="number" min="1" max="1000" step="1" value="'+esc(item?.quantity??1)+'"></div>'
+  +'<button type="button" class="btn danger" aria-label="주문 상품 행 삭제" onclick="this.parentElement.remove()">×</button>';
+ host.appendChild(row);
+ if(item)row.querySelector('.edit-order-product').value=selected;
+}
+async function saveEditedOrder(){
+ const draft=window.__editingOrder;if(!draft||draft.busy)return;
+ const fields={order_date:$('edit-order-date').value||null,customer_name:$('edit-order-customer').value.trim(),
+  manager_name:$('edit-order-manager').value.trim(),contact:$('edit-order-contact').value.trim(),
+  ship_date:$('edit-order-ship').value,address:$('edit-order-address').value.trim(),
+  receive_method:$('edit-order-method').value,note:$('edit-order-note').value.trim()};
+ if(!fields.customer_name||!fields.ship_date||!fields.address)return toast('고객/기관명, 배송일, 배송지는 입력해주세요.');
+ const rows=[...document.querySelectorAll('#edit-order-lines .kitrow')];
+ const items=rows.map(row=>({item_id:row.dataset.itemId||null,product_id:row.querySelector('.edit-order-product').value||null,
+  quantity:Number(row.querySelector('.edit-order-qty').value)}));
+ if(!items.length||items.length>100||items.some(i=>!Number.isInteger(i.quantity)||i.quantity<1||i.quantity>1000||(!i.item_id&&!i.product_id)))
+  return toast('상품을 선택하고 수량을 1~1000개의 정수로 입력해주세요.');
+ const button=$('edit-order-save');draft.busy=true;button.disabled=true;button.textContent='저장 중';
+ try{
+  const {data,error}=await db.rpc('admin_update_order_v2',{p_order_id:draft.id,p_expected_updated_at:draft.updated_at,p_fields:fields,p_items:items});
+  if(error)throw error;
+  if(!data)throw new Error('주문 수정 결과를 확인할 수 없습니다.');
+  if(window.__editingOrder===draft){closeModal();window.__editingOrder=null;}
+  toast('주문 수정이 저장되었습니다.');await init();
+ }catch(e){toast('주문 수정 실패: '+(e.message||e));}
+ finally{draft.busy=false;if(button.isConnected){button.disabled=false;button.textContent='수정 저장';}}
+}
+
+function openOrder(id){const o=state.orders.find(x=>x.id===id);if(!o)return;openModal(`<div class="between"><h2 style="margin:0">주문 ${esc(o.order_no)}</h2><button class="btn light" onclick="closeModal()">닫기</button></div><div class="panel" style="margin-top:14px"><div class="formgrid"><div><b>고객/기관</b><div>${esc(o.customer_name||'')}</div></div><div><b>연락처</b><div>${esc(o.contact||'')}</div></div><div><b>배송일</b><div>${esc(o.ship_date||'')}</div></div><div><b>배송지</b><div>${esc(o.address||'주소 정보 없음')}</div></div><div><b>주문경로</b><div>${esc(o.order_source||'')}</div></div><div><b>요청사항</b><div>${esc(o.note||'')}</div></div></div><div style="margin-top:16px"><b>상품</b>${(o.order_items||[]).map(i=>`<div style="padding:8px 0;border-bottom:1px solid var(--line)">${esc(i.product_name_snapshot||i.kit_name)} × ${fmt(i.quantity)}</div>`).join('')}</div><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">${canEditOrder(o)?`<button class="btn secondary" onclick="openEditOrder('${o.id}')">주문 수정</button>`:''}${o.order_status!=='출고완료'&&o.order_status!=='취소'?`<button class="btn primary" onclick="shipOrder('${o.id}')">출고완료 처리</button>`:''}${o.order_status!=='출고완료'&&o.order_status!=='취소'?`<button class="btn danger" onclick="cancelOrder('${o.id}')">주문 취소</button>`:''}</div></div>`)}
 const ORDER_PHOTO_BUCKET='iroun-order-photos';
 const PHOTO_LIMIT=5242880;
 const photoBusy=new Set();
@@ -548,11 +604,12 @@ function openParcelOrderDetail(id){
  ).join(''):'<tr><td colspan="2" class="muted">등록된 상품이 없습니다.</td></tr>';
  const boxes=parcelFields.map(([key,label])=>'<div><span class="muted">'+esc(label)+'</span> <b>'+fmt(d[key]??0)+'</b></div>').join('');
  openModal(
-  '<div class="between"><div><h2 style="margin:0">주문 '+esc(o.order_no||'')+' 상세</h2><div class="muted">조회 전용 · 목록의 송장·박스 입력 내용은 유지됩니다.</div></div><button type="button" class="btn light" onclick="closeModal()">닫기</button></div>'
+  '<div class="between"><div><h2 style="margin:0">주문 '+esc(o.order_no||'')+' 상세</h2><div class="muted">주문 상세정보 · 아래 주문 수정 버튼에서 변경할 수 있습니다.</div></div><button type="button" class="btn light" onclick="closeModal()">닫기</button></div>'
   +'<div class="panel" style="margin-top:14px"><h3 style="margin:0 0 13px">주문 기본정보</h3><div class="formgrid">'+values+'</div>'
   +'<div style="margin-top:15px"><b>요청사항</b><p style="white-space:pre-wrap;overflow-wrap:anywhere;margin:6px 0 0">'+esc(o.note||'없음')+'</p></div></div>'
   +'<div class="panel"><h3 style="margin-top:0">주문 상품</h3><div class="tablewrap"><table class="table" style="min-width:0"><thead><tr><th>상품명</th><th class="right">수량</th></tr></thead><tbody>'+itemRows+'</tbody></table></div></div>'
   +'<div class="panel"><h3 style="margin:0 0 10px">저장된 송장·포장정보</h3><div class="field"><label>송장번호</label><div style="white-space:pre-wrap;overflow-wrap:anywhere">'+esc(d.tracking_numbers||'미등록')+'</div></div><div class="toolbar" style="margin-top:12px">'+boxes+'</div></div>'
+  +(canEditOrder(o)?'<div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn primary" data-id="'+esc(o.id)+'" onclick="openEditOrder(this.dataset.id)">주문 수정</button></div>':'')
  );
 }
 
