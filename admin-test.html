@@ -20,6 +20,9 @@
 
 .parcel-order-number{display:flex;align-items:center;gap:7px;white-space:nowrap}.parcel-photo-btn{border:1px solid #cbdcd0;background:#f0f7f2;color:#315c4a;border-radius:6px;font:700 11px/1.2 inherit;padding:5px 6px;min-width:45px;cursor:pointer}.parcel-photo-btn:hover{background:#dceee3}.parcel-photo-btn:focus-visible{outline:2px solid #315c4a;outline-offset:2px}
 .parcel-photo-count{font-size:11px;font-weight:700;white-space:nowrap;color:#5f7065;min-width:28px;text-align:center}
+
+/* Long navigation: keep product and stock controls visible, scroll all menu items safely. */
+@media(min-width:761px){.side{display:flex;flex-direction:column;overflow:hidden}.side .logo{flex:0 0 auto}.side .nav{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;scrollbar-gutter:stable;padding-right:3px}.side .foot{position:static;flex:0 0 auto;margin-top:6px;padding:10px 0 0;border-top:1px solid var(--line)}}
 </style>
 </head>
 <body><div role="status" style="position:sticky;top:0;z-index:1000;padding:10px 14px;background:#e8f4ee;color:#24563b;border-bottom:1px solid #c7e4d2;text-align:center;font:700 13px/1.45 system-ui,-apple-system,sans-serif">테스트 전용 · 실제 주문/출고 금지 · 운영 데이터와 분리된 검증용 서버에 연결됩니다.</div>
@@ -44,7 +47,7 @@ const SUPABASE_URL='https://bgswafqssdmktnmyyqef.supabase.co';
 const SUPABASE_KEY='sb_publishable_T3tT8KOmwNjkqFdbkNzHbg_WEZ9WdzB';
 const {createClient}=supabase; const db=createClient(SUPABASE_URL,SUPABASE_KEY);
 let state={page:'dashboard',orders:[],products:[],items:[],requests:[],movements:[],loading:false,errors:[]};
-const menus=[['dashboard','대시보드'],['order','주문등록'],['orders','주문현황'],['orderprocess','주문처리'],['shipped','출고완료'],['requests','고객주문'],['partner','거래처 주문 승인'],['parcel','송장·포장박스'],['calendar','발송캘린더'],['prep','월별 준비량'],['products','상품관리'],['inventory','재고관리'],['settings','설정']];
+const menus=[['dashboard','대시보드'],['products','상품관리'],['inventory','재고관리'],['order','주문등록'],['orders','주문현황'],['orderprocess','주문처리'],['shipped','출고완료'],['requests','고객주문'],['partner','거래처 주문 승인'],['parcel','송장·포장박스'],['calendar','발송캘린더'],['prep','월별 준비량'],['settings','설정']];
 const $=id=>document.getElementById(id);
 function esc(v){return String(v??'').replace(/[&<>'"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[m]));}
 function toast(msg){$('toast').textContent=msg;$('toast').classList.remove('hidden');clearTimeout(window.__t);window.__t=setTimeout(()=>$('toast').classList.add('hidden'),2600)}
