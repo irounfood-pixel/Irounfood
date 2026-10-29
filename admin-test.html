@@ -23,6 +23,18 @@
 
 /* Long navigation: keep product and stock controls visible, scroll all menu items safely. */
 @media(min-width:761px){.side{display:flex;flex-direction:column;overflow:hidden}.side .logo{flex:0 0 auto}.side .nav{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;scrollbar-gutter:stable;padding-right:3px}.side .foot{position:static;flex:0 0 auto;margin-top:6px;padding:10px 0 0;border-top:1px solid var(--line)}}
+
+/* Wide order and shipping tables: show a synced horizontal scrollbar above the table. */
+.main,#page,.panel{min-width:0}
+.tablewrap{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-color:#87a895 #e7eee9;scrollbar-width:auto}
+.table-scroll-top{height:17px;max-width:100%;overflow-x:scroll;overflow-y:hidden;overscroll-behavior-x:contain;scrollbar-color:#729b83 #e7eee9;scrollbar-width:auto;border-radius:6px;margin-top:12px}
+.table-scroll-top[hidden]{display:none!important}
+.table-scroll-top::-webkit-scrollbar,.tablewrap::-webkit-scrollbar{height:13px}
+.table-scroll-top::-webkit-scrollbar-track,.tablewrap::-webkit-scrollbar-track{background:#e7eee9;border-radius:6px}
+.table-scroll-top::-webkit-scrollbar-thumb,.tablewrap::-webkit-scrollbar-thumb{background:#82a58f;border-radius:6px;border:2px solid #e7eee9}
+.table-scroll-top::-webkit-scrollbar-thumb:hover,.tablewrap::-webkit-scrollbar-thumb:hover{background:#4c8064}
+.table-scroll-top + .tablewrap{margin-top:5px}
+
 </style>
 </head>
 <body><div role="status" style="position:sticky;top:0;z-index:1000;padding:10px 14px;background:#e8f4ee;color:#24563b;border-bottom:1px solid #c7e4d2;text-align:center;font:700 13px/1.45 system-ui,-apple-system,sans-serif">테스트 전용 · 실제 주문/출고 금지 · 운영 데이터와 분리된 검증용 서버에 연결됩니다.</div>
@@ -64,6 +76,69 @@ async function showApp(){const {data}=await db.auth.getSession();if(!data.sessio
 $('pw').addEventListener('keydown',e=>{if(e.key==='Enter')login()});
 $('email').addEventListener('keydown',e=>{if(e.key==='Enter')$('pw').focus()});
 db.auth.onAuthStateChange((_event,session)=>{if(session){$('login').classList.add('hidden');$('app').classList.remove('hidden');renderNav();if(!state.loading) init();}else{$('app').classList.add('hidden');$('login').classList.remove('hidden');}});
+
+// Make wide tables scroll horizontally from both the top and the bottom.
+// Works after asynchronous table rendering without changing order or stock data.
+const horizontalTableScrolls=new Map();
+let horizontalTableFrame=0;
+const horizontalTableResize=typeof ResizeObserver==='function'
+ ?new ResizeObserver(()=>horizontalTableScrolls.forEach((entry,wrap)=>updateHorizontalTableScroll(wrap,entry)))
+ :null;
+function updateHorizontalTableScroll(wrap,entry){
+ if(!wrap.isConnected)return;
+ const max=wrap.scrollWidth-wrap.clientWidth;
+ entry.bar.hidden=max<=2;
+ if(entry.bar.hidden)return;
+ entry.track.style.width=Math.ceil(wrap.scrollWidth)+'px';
+ if(Math.abs(entry.bar.scrollLeft-wrap.scrollLeft)>1)entry.bar.scrollLeft=wrap.scrollLeft;
+}
+function setupHorizontalTableScrolls(){
+ const page=$('page');
+ if(!page)return;
+ const wraps=new Set(page.querySelectorAll('.tablewrap'));
+ for(const [wrap,entry] of horizontalTableScrolls){
+  if(wraps.has(wrap))continue;
+  horizontalTableResize?.unobserve(wrap);
+  if(entry.table)horizontalTableResize?.unobserve(entry.table);
+  horizontalTableScrolls.delete(wrap);
+ }
+ for(const wrap of wraps){
+  if(horizontalTableScrolls.has(wrap)){
+   updateHorizontalTableScroll(wrap,horizontalTableScrolls.get(wrap));continue;
+  }
+  const bar=document.createElement('div'),track=document.createElement('div');
+  bar.className='table-scroll-top';
+  bar.setAttribute('role','region');
+  bar.setAttribute('aria-label','표 가로 스크롤');
+  bar.tabIndex=0;
+  bar.title='좌우로 움직여 표의 숨겨진 열을 확인하세요';
+  track.className='table-scroll-track';
+  track.style.height='1px';
+  bar.appendChild(track);
+  wrap.parentNode.insertBefore(bar,wrap);
+  const entry={bar,track,table:wrap.querySelector('table')};
+  horizontalTableScrolls.set(wrap,entry);
+  bar.addEventListener('scroll',()=>{
+   if(Math.abs(wrap.scrollLeft-bar.scrollLeft)>1)wrap.scrollLeft=bar.scrollLeft;
+  },{passive:true});
+  wrap.addEventListener('scroll',()=>{
+   if(Math.abs(bar.scrollLeft-wrap.scrollLeft)>1)bar.scrollLeft=wrap.scrollLeft;
+  },{passive:true});
+  horizontalTableResize?.observe(wrap);
+  if(entry.table)horizontalTableResize?.observe(entry.table);
+  updateHorizontalTableScroll(wrap,entry);
+ }
+}
+function scheduleHorizontalTableScrolls(){
+ if(horizontalTableFrame)return;
+ horizontalTableFrame=requestAnimationFrame(()=>{
+  horizontalTableFrame=0;
+  setupHorizontalTableScrolls();
+ });
+}
+new MutationObserver(scheduleHorizontalTableScrolls).observe($('page'),{childList:true,subtree:true});
+window.addEventListener('resize',scheduleHorizontalTableScrolls,{passive:true});
+
 function renderNav(){$('nav').innerHTML=menus.map(([k,n])=>`<button class="${state.page===k?'active':''}" onclick="route('${k}')">${n}</button>`).join('')}
 function route(p){state.page=p;renderNav();({dashboard:renderDashboard,order:renderOrderForm,orders:renderOrders,orderprocess:renderOrderProcessing,shipped:renderShippedOrders,requests:renderRequests,partner:renderPartnerOrders,parcel:renderParcelEditor,calendar:renderCalendar,prep:renderMonthlyPrep,products:renderProducts,inventory:renderInventory,settings:renderSettings}[p]||renderDashboard)()}
 async function readTable(label,queryFactory){
