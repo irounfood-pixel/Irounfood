@@ -65,6 +65,11 @@ function sourceUid_(sheet,row,used) {
   target.addDeveloperMetadata(ROW_KEY,uid,SpreadsheetApp.DeveloperMetadataVisibility.PROJECT);
  }
  used.add(uid);
+ // Share only the non-secret UID with the separate ML portal project.
+ // Existing IDs must survive migration; changing visibility never creates a new order.
+ const current=target.getDeveloperMetadata().find(m=>m.getKey()===ROW_KEY&&m.getValue()===uid);
+ if(current&&current.getVisibility()!==SpreadsheetApp.DeveloperMetadataVisibility.DOCUMENT)
+  current.setVisibility(SpreadsheetApp.DeveloperMetadataVisibility.DOCUMENT);
  return uid;
 }
 function syncOnePartnerSheet_(cfg) {

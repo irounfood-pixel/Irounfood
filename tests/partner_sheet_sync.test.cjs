@@ -12,7 +12,7 @@ function fixture(existing = []) {
   const context = vm.createContext({
     Date,
     Utilities: { getUuid: () => fresh },
-    SpreadsheetApp: { DeveloperMetadataVisibility: { PROJECT: 'PROJECT' } },
+    SpreadsheetApp: { DeveloperMetadataVisibility: { PROJECT: 'PROJECT', DOCUMENT: 'DOCUMENT' } },
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../apps_script/partner_sheet_sync.gs'), 'utf8'), context);
   const sheet = {
@@ -27,7 +27,7 @@ function fixture(existing = []) {
         addDeveloperMetadata(k, value, visibility) {
           assert.equal(k, key);
           assert.equal(visibility, 'PROJECT');
-          metadata.push({ getKey: () => k, getValue: () => value, remove() {} });
+          metadata.push({ getKey: () => k, getValue: () => value, remove() {}, getVisibility: () => 'DOCUMENT', setVisibility() {} });
         },
       };
     },
@@ -45,7 +45,7 @@ test('new rows create a UID using a true whole-row range', () => {
 
 test('a moved row keeps its existing UID instead of generating another order', () => {
   const uid = '00000000-0000-4000-8000-000000000099';
-  const f = fixture([{ getKey: () => 'IROUN_PARTNER_SOURCE_UID_V2', getValue: () => uid }]);
+  const f = fixture([{ getKey: () => 'IROUN_PARTNER_SOURCE_UID_V2', getValue: () => uid, getVisibility: () => 'DOCUMENT' }]);
   assert.equal(f.context.sourceUid_(f.sheet, 18, new Set()), uid);
   assert.equal(f.metadata.length, 1);
 });
@@ -62,4 +62,12 @@ test('Korean date text is accepted but impossible dates are rejected', () => {
   const f = fixture();
   assert.equal(f.context.dateString_('2026. 11. 4.', {}), '2026-11-04');
   assert.equal(f.context.dateString_('2026-02-30', {}), '');
+});
+
+test('existing project-only UID becomes visible to the separate portal without changing identity', () => {
+ let visibility='PROJECT'; const uid='00000000-0000-4000-8000-000000000099';
+ const f=fixture([{getKey:()=> 'IROUN_PARTNER_SOURCE_UID_V2',getValue:()=>uid,
+  getVisibility:()=>visibility,setVisibility:v=>{visibility=v;}}]);
+ assert.equal(f.context.sourceUid_(f.sheet,2,new Set()),uid);
+ assert.equal(visibility,'DOCUMENT'); assert.equal(f.metadata.length,1);
 });

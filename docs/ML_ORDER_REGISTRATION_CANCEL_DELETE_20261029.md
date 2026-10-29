@@ -53,4 +53,32 @@ POST `/functions/v1/partner-sheet-ingest`, Authorization 헤더는 **서버 내*
 5. 테스트 Edge Function과 SQL을 별도 테스트 환경에 실제 적용해 HTTP/앱 종단 간 검증한 뒤에만 운영 스키마/함수/페이지 변경.
 6. 기존 관리자 화면 주문/출고/송장/사진 원본 다운로드 및 엑셀 기능 회귀 테스트 후 `main` 병합.
 
-**이 PR은 검토용으로만 유지한다. 운영 DB 마이그레이션, Edge 배포, Google WebApp 배포 및 GitHub main 병합은 아직 하지 않았다.**
+**이 PR은 검토용으로 유지한다. 운영 DB 마이그레이션, 운영 Edge/Google WebApp 배포 및 GitHub main 병합은 하지 않았다.**
+
+## 후속 작업: 실제 ML 소스 확인 및 테스트 서버 준비
+
+- 실제 ML 웹앱 원본은 `이로운과자점 ML 거래처 주문화면` 독립형 프로젝트의 `Code.gs`이며, 주문입력 시트는 `1lgXZtokJqUfvBibMmXgEPfu7KjTCteIigU_NcVYndfM`이다. 원본 프로젝트와 기존 배포 코드는 이번 작업에서 변경하지 않았다.
+- `ml_portal_order_actions.gs`와 `.client.js`, `scripts/patch_ml_portal.cjs`를 추가했다. 기존 HTML의 사진 원본·최대 400×300 표시·14열 빈 양식·업로드 코드를 보존하며 카드에 승인 취소/완전 삭제 버튼을 연결한다.
+- 두 독립형 프로젝트가 기존 동일 UID를 읽도록 동기화 코드가 기존 메타데이터의 가시성만 `PROJECT → DOCUMENT`로 변경한다. UID 자체는 유지한다. UID는 권한이나 비밀키로 사용하지 않는다.
+- 새 `partner-portal-manage` Edge/RPC는 별도 `private.partner_portal_tokens` 자격증명을 사용한다. ML 시트만 조회/취소/삭제하며 동기화 토큰과 서비스키를 프런트엔드에 전달하지 않는다. 취소/삭제 시 주문 8개 필드와 `updated_at`을 DB 잠금 안에서 비교한다.
+- 완전 삭제한 UID를 화면에서도 제외한다. 실제 시트 행은 기존 관리자 동기화 프로젝트가 다음 동기화 때 정리한다. 같은 내용의 다른 UID 주문은 유지한다.
+- 테스트 프로젝트 `bgswafqssdmktnmyyqef`에 SQL 변경과 `partner-sheet-ingest` v3, `partner-portal-manage` v1을 실제 배포했다. 운영 프로젝트는 조회만 했다.
+- `node --test tests/*.test.cjs`: 9건 통과. SQL 회귀 검증: 승인, 다품목 동시 등록 복귀, 출고완료 차단, 등록 수정, 삭제/재동기화, 다른 시트 인증 차단, 오래된 스냅샷 차단, 재고 불변을 트랜잭션 내 검증 후 ROLLBACK.
+- 운영 기준선 조회: orders 43건, partner_order_rows 4건, order_items 77행. 운영 주문/재고 수정 없음.
+
+### 현재 이어갈 위치
+
+테스트 Apps Script 프로젝트 `ML 주문상태 테스트 · 운영 분리 20261029`에 코드 저장 완료:
+
+`https://script.google.com/home/projects/1pLQ_s_di7EoXLLS_sqsL632nYh9jmLKT4HKi8Tsc0fLab3RhgkGpST-Q/edit?hl=ko`
+
+테스트 원본은 `scripts/prepare_ml_staging.cjs`로 생성한다. 실제 ML 시트 ID와 운영 Supabase URL을 제외했으며, 새 가상 주문 시트만 생성한다. 사진 다운로드 테스트는 새 테스트 시트에 첨부사진이 없어 0장으로 제한한다. 기존 운영 사진 다운로드 회귀 검증은 별도로 남아 있다.
+
+`initializeMLStaging` 실행 시 Google 추가 본인 확인은 완료했다. 새 테스트 앱 OAuth 권한 승인이 남아 있어 초기화는 아직 완료되지 않았다. 새 권한 부여는 사용자가 직접 진행해야 한다. 웹앱 URL도 아직 생성하지 않았다.
+
+승인 후 순서:
+
+1. 초기화 실행 로그의 `sheet_id`, `portal_hash`, `sync_hash`만 조회한다. 원문 토큰은 Script Properties에만 보관하며 출력하지 않는다.
+2. **테스트 DB만** `partner_sheet_sources`, `private.partner_sheet_tokens`, `private.partner_portal_tokens`에 해당 테스트 시트/해시를 등록한다. 기존 ML 토큰은 교체하지 않는다.
+3. `syncAllPartnerSheets`를 수동 실행하고 **소유자만 접근하는 테스트 웹앱**으로 배포한다. 테스트 자동 트리거는 설치하지 않는다.
+4. 테스트 관리자 승인과 ML 화면 버튼 취소/수정/삭제를 실제 브라우저에서 확인한다. 원본 사진/양식/업로드 회귀 검증을 완료한 뒤 운영 전환을 판단한다.

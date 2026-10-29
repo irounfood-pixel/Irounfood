@@ -235,3 +235,47 @@ BEGIN
 END $fn$;
 REVOKE ALL ON FUNCTION public.partner_sheet_deleted_uids(text,text) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.partner_sheet_deleted_uids(text,text) TO service_role;
+
+-- Separate portal credential: read/cancel/delete only, never reuse administrator sync tokens.
+CREATE TABLE IF NOT EXISTS private.partner_portal_tokens(
+ sheet_id text PRIMARY KEY REFERENCES public.partner_sheet_sources(sheet_id),
+ token_hash text NOT NULL, enabled boolean NOT NULL DEFAULT false
+);
+ALTER TABLE private.partner_portal_tokens ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON private.partner_portal_tokens FROM PUBLIC,anon,authenticated;
+
+CREATE OR REPLACE FUNCTION public.partner_portal_manage(
+ p_sheet_id text,p_token_hash text,p_action text,p_source_uid uuid DEFAULT NULL,
+ p_expected jsonb DEFAULT NULL,p_expected_updated_at timestamptz DEFAULT NULL
+) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO ''
+AS $fn$
+DECLARE v_row public.partner_order_rows%rowtype; v_result jsonb; v_rows jsonb; v_deleted jsonb;
+BEGIN
+ IF NOT EXISTS(SELECT 1 FROM private.partner_portal_tokens t
+  JOIN public.partner_sheet_sources s USING(sheet_id)
+  WHERE t.sheet_id=p_sheet_id AND t.token_hash=p_token_hash AND t.enabled AND s.enabled)
+ THEN RAISE EXCEPTION '거래처 인증에 실패했습니다.'; END IF;
+ IF p_action NOT IN ('status','cancel','delete') THEN RAISE EXCEPTION '허용되지 않은 동작입니다.'; END IF;
+ IF p_action<>'status' THEN
+  SELECT * INTO v_row FROM public.partner_order_rows
+  WHERE sheet_id=p_sheet_id AND source_uid=p_source_uid FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION '주문을 찾을 수 없습니다. 새로고침해 주세요.'; END IF;
+  IF p_expected_updated_at IS DISTINCT FROM v_row.updated_at OR
+   p_expected IS DISTINCT FROM jsonb_build_array(v_row.order_date::text,v_row.ship_date::text,
+    v_row.product_name,v_row.quantity::text,v_row.recipient,v_row.contact,v_row.address,v_row.note)
+  THEN RAISE EXCEPTION '주문이 변경되었습니다. 새로고침 후 다시 시도해 주세요.'; END IF;
+  v_result:=private.partner_order_action_core(v_row.id,p_action);
+ END IF;
+ SELECT coalesce(jsonb_agg(jsonb_build_object('source_uid',r.source_uid,'source_row',r.source_row,
+  'status',r.status,'updated_at',r.updated_at,'approved_order_id',r.approved_order_id,
+  'order_status',o.order_status,
+  'fields',jsonb_build_array(r.order_date::text,r.ship_date::text,r.product_name,r.quantity::text,
+   r.recipient,r.contact,r.address,r.note)) ORDER BY r.source_row),'[]'::jsonb)
+ INTO v_rows FROM public.partner_order_rows r LEFT JOIN public.orders o ON o.id=r.approved_order_id
+ WHERE r.sheet_id=p_sheet_id;
+ SELECT coalesce(jsonb_agg(source_uid::text),'[]'::jsonb) INTO v_deleted
+ FROM private.partner_order_deleted_keys WHERE sheet_id=p_sheet_id;
+ RETURN jsonb_build_object('ok',true,'mutation',v_result,'rows',v_rows,'deleted_uids',v_deleted);
+END $fn$;
+REVOKE ALL ON FUNCTION public.partner_portal_manage(text,text,text,uuid,jsonb,timestamptz) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.partner_portal_manage(text,text,text,uuid,jsonb,timestamptz) TO service_role;
