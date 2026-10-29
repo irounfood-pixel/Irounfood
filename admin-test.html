@@ -18,6 +18,7 @@
 
 .order-photo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(115px,1fr));gap:10px}.order-photo-item{padding:8px;border:1px solid #dce7de;border-radius:10px;min-width:0}.order-photo-item img{display:block;width:100%;height:100px;object-fit:cover;border-radius:6px}.order-photo-item .photo-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:7px 0}.order-photo-item button{padding:6px 9px;min-height:30px}.modalbox{width:min(850px,100%)}
 
+.parcel-detail-btn{border:1px solid #cadbd1;background:#fff;color:#315c4a;border-radius:6px;font-weight:700;font-size:11px;line-height:1.2;padding:5px 8px;cursor:pointer}.parcel-detail-btn:hover{background:#edf4ef}.parcel-detail-btn:focus-visible{outline:2px solid #315c4a;outline-offset:2px}
 .parcel-order-number{display:flex;align-items:center;gap:7px;white-space:nowrap}.parcel-photo-btn{border:1px solid #cbdcd0;background:#f0f7f2;color:#315c4a;border-radius:6px;font:700 11px/1.2 inherit;padding:5px 6px;min-width:45px;cursor:pointer}.parcel-photo-btn:hover{background:#dceee3}.parcel-photo-btn:focus-visible{outline:2px solid #315c4a;outline-offset:2px}
 .parcel-photo-count{font-size:11px;font-weight:700;white-space:nowrap;color:#5f7065;min-width:28px;text-align:center}
 
@@ -501,18 +502,43 @@ async function renderParcelEditor(){
  const rows=orders.map(o=>{
   const d=detail[o.id]||{};
   const boxes=parcelFields.map(([key,label])=>'<td><div class="parcel-number-control"><input class="parcel-qty-input" type="number" inputmode="numeric" min="0" max="1000" step="1" id="parcel-'+key+'-'+o.id+'" aria-label="'+esc(o.order_no+' '+label)+'" value="'+esc(d[key]??0)+'"><span class="parcel-step-stack"><button type="button" class="parcel-step-btn" data-id="'+o.id+'" data-key="'+key+'" aria-label="'+esc(o.order_no+' '+label+' 1개 증가')+'" onclick="stepParcelBox(this.dataset.id,this.dataset.key,1)">+</button><button type="button" class="parcel-step-btn" data-id="'+o.id+'" data-key="'+key+'" aria-label="'+esc(o.order_no+' '+label+' 1개 감소')+'" onclick="stepParcelBox(this.dataset.id,this.dataset.key,-1)">−</button></span></div></td>').join('');
-  return '<tr><td><div class="parcel-order-number"><b>'+esc(o.order_no)+'</b><button type="button" class="parcel-photo-btn" data-id="'+o.id+'" title="송장 입력 전에도 사진 첨부 가능" aria-label="'+esc(o.order_no)+' 주문 사진 첨부" onclick="openOrderPhotoManager(this.dataset.id)">사진 +</button><span class="parcel-photo-count" id="parcel-photo-count-'+o.id+'" aria-label="첨부사진 수">확인 중</span></div></td><td>'+esc(o.ship_date||'')+'</td><td>'+esc(o.manager_name||o.customer_name||'')+'</td>'
+  return '<tr><td><div class="parcel-order-number"><b>'+esc(o.order_no)+'</b><button type="button" class="parcel-detail-btn" data-id="'+o.id+'" aria-label="'+esc(o.order_no)+' 주문 상세보기" onclick="openParcelOrderDetail(this.dataset.id)">상세</button><button type="button" class="parcel-photo-btn" data-id="'+o.id+'" title="송장 입력 전에도 사진 첨부 가능" aria-label="'+esc(o.order_no)+' 주문 사진 첨부" onclick="openOrderPhotoManager(this.dataset.id)">사진 +</button><span class="parcel-photo-count" id="parcel-photo-count-'+o.id+'" aria-label="첨부사진 수">확인 중</span></div></td><td>'+esc(o.ship_date||'')+'</td><td>'+esc(o.manager_name||o.customer_name||'')+'</td>'
    +'<td><input class="parcel-track-input" id="parcel-track-'+o.id+'" aria-label="'+esc(o.order_no+' 송장번호')+'" placeholder="쉼표로 여러 개 입력" maxlength="1000" value="'+esc(d.tracking_numbers||'')+'"></td>'
    +boxes+'<td><button class="btn primary" id="parcel-save-'+o.id+'" data-id="'+o.id+'" onclick="saveInlineParcel(this.dataset.id)">저장</button></td>'
    +'</tr>';
  }).join('');
- page.innerHTML='<div class="top"><div><h1>송장·포장박스</h1><div class="muted">주문번호 옆 사진 +로 송장 입력 전에도 사진을 첨부할 수 있습니다. 입력 후 해당 행의 저장을 누르세요.</div></div><div class="toolbar"><button class="btn secondary" onclick="renderParcelEditor()">새로고침</button><button class="btn primary" id="parcel-export-xlsx" onclick="exportParcelDetails()">사진 포함 엑셀 다운로드</button></div></div>'
+ page.innerHTML='<div class="top"><div><h1>송장·포장박스</h1><div class="muted">주문번호 옆 상세 버튼으로 주문 내용을 확인하고, 사진 +로 사진을 첨부할 수 있습니다. 송장·박스 변경 후 해당 행의 저장을 누르세요.</div></div><div class="toolbar"><button class="btn secondary" onclick="renderParcelEditor()">새로고침</button><button class="btn primary" id="parcel-export-xlsx" onclick="exportParcelDetails()">사진 포함 엑셀 다운로드</button></div></div>'
   +'<div class="panel"><p class="muted">박스 수량은 입력칸 오른쪽 위 + / 아래 − 버튼으로 1개씩 조절할 수 있습니다. 송장번호는 쉼표(,)로 구분합니다. 변경 후 행별 저장을 눌러야 엑셀에 반영됩니다.</p>'
   +'<div class="tablewrap"><table class="table parcel-table"><thead><tr><th>주문번호</th><th>발송일</th><th>수령인</th><th>송장번호</th>'+heads+'<th>저장</th></tr></thead><tbody>'
   +(rows||'<tr><td colspan="10"><div class="empty">주문이 없습니다.</div></td></tr>')+'</tbody></table></div></div>';
  if(orders.length)void refreshParcelPhotoCounts(orders);
 }
 
+
+function openParcelOrderDetail(id){
+ const o=state.orders.find(item=>item.id===id);
+ if(!o)return toast('주문을 찾을 수 없습니다.');
+ const d=window.__parcelDetails?.[id]||{};
+ const items=Array.isArray(o.order_items)?o.order_items:[];
+ const fields=[
+  ['주문일',o.order_date],['발송일',o.ship_date],
+  ['주문자/기관',o.customer_name],['담당자/수령인',o.manager_name||o.customer_name],
+  ['연락처',o.contact],['배송지',o.address],['수령방법',o.receive_method],
+  ['주문경로',o.order_source],['주문상태',o.order_status],['결제상태',o.payment_status]
+ ];
+ const values=fields.map(([label,value])=>'<div><b>'+esc(label)+'</b><div style="margin-top:5px;overflow-wrap:anywhere">'+esc(value||'-')+'</div></div>').join('');
+ const itemRows=items.length?items.map(item=>
+  '<tr><td>'+esc(item.product_name_snapshot||item.kit_name||'상품명 없음')+'</td><td class="right">'+fmt(item.quantity)+'개</td></tr>'
+ ).join(''):'<tr><td colspan="2" class="muted">등록된 상품이 없습니다.</td></tr>';
+ const boxes=parcelFields.map(([key,label])=>'<div><span class="muted">'+esc(label)+'</span> <b>'+fmt(d[key]??0)+'</b></div>').join('');
+ openModal(
+  '<div class="between"><div><h2 style="margin:0">주문 '+esc(o.order_no||'')+' 상세</h2><div class="muted">조회 전용 · 목록의 송장·박스 입력 내용은 유지됩니다.</div></div><button type="button" class="btn light" onclick="closeModal()">닫기</button></div>'
+  +'<div class="panel" style="margin-top:14px"><h3 style="margin:0 0 13px">주문 기본정보</h3><div class="formgrid">'+values+'</div>'
+  +'<div style="margin-top:15px"><b>요청사항</b><p style="white-space:pre-wrap;overflow-wrap:anywhere;margin:6px 0 0">'+esc(o.note||'없음')+'</p></div></div>'
+  +'<div class="panel"><h3 style="margin-top:0">주문 상품</h3><div class="tablewrap"><table class="table" style="min-width:0"><thead><tr><th>상품명</th><th class="right">수량</th></tr></thead><tbody>'+itemRows+'</tbody></table></div></div>'
+  +'<div class="panel"><h3 style="margin:0 0 10px">저장된 송장·포장정보</h3><div class="field"><label>송장번호</label><div style="white-space:pre-wrap;overflow-wrap:anywhere">'+esc(d.tracking_numbers||'미등록')+'</div></div><div class="toolbar" style="margin-top:12px">'+boxes+'</div></div>'
+ );
+}
 
 async function refreshParcelPhotoCounts(orders=photoExportOrders()){
  if(state.page!=='parcel'||!orders.length)return;
