@@ -489,14 +489,25 @@ async function rejectSelectedPartnerRows(){
 
 const parcelFields=[['ice_small','아이스 소'],['ice_medium','아이스 중'],['ice_large','아이스 대'],['paper_medium','종이 중'],['paper_large','종이 대']];
 const parcelBusy=new Set();
+function parcelOrders(details=window.__parcelDetails||{}){
+ return (state.orders||[]).filter(o=>o.order_status!=='취소'&&
+  (String(o.order_source||'').trim()==='거래처시트'||String(o.receive_method||'').trim()==='택배'))
+  .slice().sort((a,b)=>{
+   const aTracked=Boolean(String(details[a.id]?.tracking_numbers||'').trim());
+   const bTracked=Boolean(String(details[b.id]?.tracking_numbers||'').trim());
+   return Number(aTracked)-Number(bTracked)||
+    String(b.ship_date||'').localeCompare(String(a.ship_date||''))||
+    String(a.order_no||'').localeCompare(String(b.order_no||''));
+  });
+}
+
 async function renderParcelEditor(){
  const page=$('page');
  page.innerHTML='<div class="top"><h1>송장·포장박스</h1></div><div class="panel">출고정보를 불러오는 중입니다.</div>';
  const {data,error}=await db.from('order_shipping_details').select('*');
  if(error){page.innerHTML='<div class="panel dangertext">'+esc(error.message)+'</div>';return}
  const detail=Object.fromEntries((data||[]).map(x=>[x.order_id,x]));
- const orders=(state.orders||[]).filter(x=>x.order_status!=='취소')
-  .slice().sort((a,b)=>String(b.ship_date).localeCompare(String(a.ship_date))).slice(0,300);
+ const orders=parcelOrders(detail);
  window.__parcelDetails=detail;
  const heads=parcelFields.map(([,label])=>'<th>'+label+'</th>').join('');
  const rows=orders.map(o=>{
@@ -507,7 +518,7 @@ async function renderParcelEditor(){
    +boxes+'<td><button class="btn primary" id="parcel-save-'+o.id+'" data-id="'+o.id+'" onclick="saveInlineParcel(this.dataset.id)">저장</button></td>'
    +'</tr>';
  }).join('');
- page.innerHTML='<div class="top"><div><h1>송장·포장박스</h1><div class="muted">주문번호 옆 상세 버튼으로 주문 내용을 확인하고, 사진 +로 사진을 첨부할 수 있습니다. 송장·박스 변경 후 해당 행의 저장을 누르세요.</div></div><div class="toolbar"><button class="btn secondary" onclick="renderParcelEditor()">새로고침</button><button class="btn primary" id="parcel-export-xlsx" onclick="exportParcelDetails()">사진 포함 엑셀 다운로드</button></div></div>'
+ page.innerHTML='<div class="top"><div><h1>송장·포장박스</h1><div class="muted">송장 미입력 주문이 먼저 표시됩니다. ML 등 거래처시트 승인 주문과 택배 주문만 표시합니다. 송장·박스 변경 후 해당 행의 저장을 누르세요.</div></div><div class="toolbar"><button class="btn secondary" onclick="renderParcelEditor()">새로고침</button><button class="btn primary" id="parcel-export-xlsx" onclick="exportParcelDetails()">사진 포함 엑셀 다운로드</button></div></div>'
   +'<div class="panel"><p class="muted">박스 수량은 입력칸 오른쪽 위 + / 아래 − 버튼으로 1개씩 조절할 수 있습니다. 송장번호는 쉼표(,)로 구분합니다. 변경 후 행별 저장을 눌러야 엑셀에 반영됩니다.</p>'
   +'<div class="tablewrap"><table class="table parcel-table"><thead><tr><th>주문번호</th><th>발송일</th><th>배송지</th><th>송장번호</th>'+heads+'<th>저장</th></tr></thead><tbody>'
   +(rows||'<tr><td colspan="10"><div class="empty">주문이 없습니다.</div></td></tr>')+'</tbody></table></div></div>';
@@ -602,11 +613,9 @@ function photoExportHeaders(){
   '총 박스 수','주문상태','상품명 및 수량','요청사항','첨부사진 수'];
 }
 function photoExportOrders(){
- // Photos are allowed before shipment details exist. Include such orders in the export.
- return (state.orders||[]).filter(o=>o.order_status!=='취소').slice()
-  .sort((a,b)=>String(b.ship_date||'').localeCompare(String(a.ship_date||''))||
-   String(a.order_no||'').localeCompare(String(b.order_no||'')));
+ return parcelOrders();
 }
+
 async function loadOrderPhotosForExcel(orders){
  const result=[];
  const ids=orders.map(o=>o.id);
