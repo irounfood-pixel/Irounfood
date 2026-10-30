@@ -61,7 +61,7 @@ const SUPABASE_URL='https://iqopdxrnkmpdivzndkxq.supabase.co';
 const SUPABASE_KEY='sb_publishable_8jMegFjVcyhp1SIRZHosAQ_fVoxo8Nr';
 const {createClient}=supabase; const db=createClient(SUPABASE_URL,SUPABASE_KEY);
 let state={page:'dashboard',orders:[],products:[],items:[],requests:[],movements:[],loading:false,errors:[]};
-const menus=[['dashboard','대시보드'],['products','상품관리'],['inventory','재고관리'],['order','주문등록'],['orders','주문현황'],['orderprocess','주문처리'],['shipped','출고완료'],['requests','고객주문'],['partner','거래처 주문 승인'],['parcel','송장·포장박스'],['calendar','발송캘린더'],['prep','월별 준비량'],['settings','설정']];
+const menus=[['dashboard','대시보드'],['products','상품관리'],['inventory','재고관리'],['order','주문등록'],['orders','주문현황'],['orderprocess','주문처리'],['shipped','출고완료'],['requests','고객주문'],['partner','거래처 주문 승인'],['parcel','송장·포장박스'],['mlparcel','ML 송장·포장박스'],['calendar','발송캘린더'],['prep','월별 준비량'],['settings','설정']];
 const $=id=>document.getElementById(id);
 function esc(v){return String(v??'').replace(/[&<>'"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[m]));}
 function toast(msg){$('toast').textContent=msg;$('toast').classList.remove('hidden');clearTimeout(window.__t);window.__t=setTimeout(()=>$('toast').classList.add('hidden'),2600)}
@@ -141,7 +141,7 @@ new MutationObserver(scheduleHorizontalTableScrolls).observe($('page'),{childLis
 window.addEventListener('resize',scheduleHorizontalTableScrolls,{passive:true});
 
 function renderNav(){$('nav').innerHTML=menus.map(([k,n])=>`<button class="${state.page===k?'active':''}" onclick="route('${k}')">${n}</button>`).join('')}
-function route(p){state.page=p;renderNav();({dashboard:renderDashboard,order:renderOrderForm,orders:renderOrders,orderprocess:renderOrderProcessing,shipped:renderShippedOrders,requests:renderRequests,partner:renderPartnerOrders,parcel:renderParcelEditor,calendar:renderCalendar,prep:renderMonthlyPrep,products:renderProducts,inventory:renderInventory,settings:renderSettings}[p]||renderDashboard)()}
+function route(p){state.page=p;renderNav();({dashboard:renderDashboard,order:renderOrderForm,orders:renderOrders,orderprocess:renderOrderProcessing,shipped:renderShippedOrders,requests:renderRequests,partner:renderPartnerOrders,parcel:renderParcelEditor,mlparcel:renderParcelEditor,calendar:renderCalendar,prep:renderMonthlyPrep,products:renderProducts,inventory:renderInventory,settings:renderSettings}[p]||renderDashboard)()}
 async function readTable(label,queryFactory){
  try{const {data,error}=await queryFactory();if(error){const message=label+': '+(error.message||'조회 오류');state.errors.push(message);console.error(message,error);return null;}return data||[];}
  catch(e){const message=label+': '+(e.message||e);state.errors.push(message);console.error(message,e);return null;}
@@ -342,7 +342,7 @@ async function uploadOrderPhotos(orderId){
  finally{
   photoBusy.delete(orderId);input.disabled=false;button.disabled=false;button.textContent='사진 올리기';input.value='';
   await loadOrderPhotos(orderId);
-  if(state.page==='parcel')void refreshParcelPhotoCounts();
+  if(['parcel','mlparcel'].includes(state.page))void refreshParcelPhotoCounts();
  }
 }
 async function removeOrderPhoto(photoId,orderId){
@@ -355,7 +355,7 @@ async function removeOrderPhoto(photoId,orderId){
  if(deleteError)return toast('사진 정보 삭제 실패: '+deleteError.message);
  toast('사진을 삭제했습니다.');
  loadOrderPhotos(orderId);
- if(state.page==='parcel')void refreshParcelPhotoCounts();
+ if(['parcel','mlparcel'].includes(state.page))void refreshParcelPhotoCounts();
 }
 
 async function shipOrder(id){try{const {data,error}=await db.rpc('ship_order_v2',{p_order_id:id});if(error)throw error;toast('출고완료 및 재고 차감이 처리되었습니다.');closeModal();await init();route('orders')}catch(e){toast('출고 처리 실패: '+(e.message||e))}}
@@ -560,11 +560,12 @@ async function deleteRegisteredPartnerRow(rowId){
 const parcelFields=[['ice_small','아이스 소'],['ice_medium','아이스 중'],['ice_large','아이스 대'],['paper_medium','종이 중'],['paper_large','종이 대']];
 const parcelBusy=new Set();
 function isMLParcelOrder(order){
- return /^ml(?:거래처)?$/i.test(String(order.customer_name||'').replace(/\s+/g,''));
+ return /^ml(?:$|거래처|지사|[_\-])/i.test(String(order.customer_name||'').replace(/\s+/g,''));
 }
 function parcelOrders(details=window.__parcelDetails||{}){
  return (state.orders||[]).filter(o=>o.order_status!=='취소'&&
   (String(o.order_source||'').trim()==='거래처시트'||String(o.receive_method||'').trim()==='택배'))
+  .filter(o=>state.page==='mlparcel'?isMLParcelOrder(o):!isMLParcelOrder(o))
   .slice().sort((a,b)=>{
    const aTracked=Boolean(String(details[a.id]?.tracking_numbers||'').trim());
    const bTracked=Boolean(String(details[b.id]?.tracking_numbers||'').trim());
@@ -575,7 +576,7 @@ function parcelOrders(details=window.__parcelDetails||{}){
 }
 
 function reorderParcelRows(){
- if(state.page!=='parcel')return;
+ if(!['parcel','mlparcel'].includes(state.page))return;
  for(const order of parcelOrders()){
   const row=$('parcel-save-'+order.id)?.closest('tr');
   const body=row?.parentElement;
@@ -603,10 +604,9 @@ async function renderParcelEditor(){
  const section=(title,group)=>'<section class="panel"><h2>'+title+' <span class="muted">('+group.length+'건)</span></h2>'
   +'<div class="tablewrap"><table class="table parcel-table"><thead><tr><th>주문번호</th><th>발송일</th><th>배송지</th><th>송장번호</th>'+heads+'<th>저장</th></tr></thead><tbody>'
   +(group.map(parcelRow).join('')||'<tr><td colspan="10"><div class="empty">주문이 없습니다.</div></td></tr>')+'</tbody></table></div></section>';
- page.innerHTML='<div class="top"><div><h1>송장·포장박스</h1><div class="muted">ML 거래처와 일반 택배 주문을 따로 입력합니다. 각 목록에서 송장 미입력 주문이 먼저 표시됩니다.</div></div><div class="toolbar"><button class="btn secondary" onclick="renderParcelEditor()">새로고침</button><button class="btn primary" id="parcel-export-xlsx" onclick="exportParcelDetails()">사진 포함 엑셀 다운로드</button></div></div>'
+ page.innerHTML='<div class="top"><div><h1>'+ (state.page==='mlparcel'?'ML 송장·포장박스':'송장·포장박스') +'</h1><div class="muted">'+(state.page==='mlparcel'?'ML 주문만 표시합니다.':'일반 택배·기타 거래처 주문을 표시합니다. ML 주문은 별도 메뉴에서 확인하세요.')+' 송장 미입력 주문이 먼저 표시됩니다.</div></div><div class="toolbar"><button class="btn secondary" onclick="renderParcelEditor()">새로고침</button><button class="btn primary" id="parcel-export-xlsx" onclick="exportParcelDetails()">사진 포함 엑셀 다운로드</button></div></div>'
   +'<p class="muted">송장·박스 변경 후 해당 행의 저장을 누르세요. 박스 수량은 + / − 버튼으로 조절하며 여러 송장번호는 쉼표(,)로 구분합니다.</p>'
-  +section('ML 거래처 송장·포장박스',orders.filter(isMLParcelOrder))
-  +section('일반 택배·기타 거래처 송장·포장박스',orders.filter(o=>!isMLParcelOrder(o)));
+  +section(state.page==='mlparcel'?'ML 거래처 송장·포장박스':'일반 택배·기타 거래처 송장·포장박스',orders);
  if(orders.length)void refreshParcelPhotoCounts(orders);
 }
 
@@ -638,7 +638,7 @@ function openParcelOrderDetail(id){
 }
 
 async function refreshParcelPhotoCounts(orders=photoExportOrders()){
- if(state.page!=='parcel'||!orders.length)return;
+ if(!['parcel','mlparcel'].includes(state.page)||!orders.length)return;
  const ids=orders.map(o=>o.id);
  const countMap=new Map(ids.map(id=>[id,0]));
  try{
@@ -651,13 +651,13 @@ async function refreshParcelPhotoCounts(orders=photoExportOrders()){
     if(!data||data.length<500)break;
    }
   }
-  if(state.page!=='parcel')return;
+  if(!['parcel','mlparcel'].includes(state.page))return;
   for(const [id,n] of countMap){
    const label=$('parcel-photo-count-'+id);
    if(label)label.textContent=n+'장';
   }
  }catch(e){
-  if(state.page!=='parcel')return;
+  if(!['parcel','mlparcel'].includes(state.page))return;
   for(const id of ids){
    const label=$('parcel-photo-count-'+id);
    if(label)label.textContent='조회 실패';
