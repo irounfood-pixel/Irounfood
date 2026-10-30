@@ -156,3 +156,13 @@ POST `/functions/v1/partner-sheet-ingest`, Authorization 헤더는 **서버 내*
 - 테스트 관리자에 먼저 반영하고 Pages build/deploy 성공 확인 후 운영 관리자 소스에도 반영했다. 두 HTML의 JS 구문과 가상 주문을 이용한 분리·정렬·방문수령/취소 제외 검증 통과. 본 PR의 파일에도 같은 변경을 보존했다.
 - ML 다운로드의 Apps Script 원본은 고정 ML 시트만 읽는다. 운영 partner-photo-export v2 및 ml_portal_photo_manifest()도 ML sheet_id의 승인 행과 그 주문의 사진만 반환한다. DB 검증에서 all_source_rows_ml/all_photos_linked_to_ml 모두 true였고 anon/authenticated의 manifest 직접 실행 권한도 false였다. 다른 거래처로 다운로드 범위를 넓히는 변경은 하지 않았다.
 - 이번 변경은 송장 입력 화면 분리다. 앞서 진행하던 ML 승인 취소/완전 삭제의 DB/API/Google 최종 배포는 여전히 별도 미완료 상태이며 완료로 보고하지 않는다.
+
+
+## 최종 배포 재시도: Supabase 계정 연결 동의 대기
+
+- Google 재로그인 성공. 기존 ML 저장 코드 47,465자에서 manageMLPortalOrder 존재 및 임시 configureMLPortalManage 함수 제거 확인.
+- 회귀검증 9건 다시 통과. 운영 기준선은 주문 46건/거래처 행 5건/입출고 69건, 주문 해시 21d5bf1ce261f8ac3eae7b96979e3111, 재고 해시 0e491ecbc7fc69beddacfa586700ccb2.
+- apply_migration이 다시 Invalid or expired requestState로 실패했다. 조회로 신규 portal RPC가 여전히 없음을 확인했다. DB/API/Google 최종 배포나 PR 병합은 이번에도 하지 않았다.
+- 공식 Supabase SQL 관리 화면에 접속해 로그인 화면 확인. 사용자가 보안 선택창에서 ChatGPT 로그인을 선택하고 이어 Google 로그인을 선택했다.
+- ChatGPT의 기본 프로필(이름/사용자명/이메일/프로필 사진)을 Supabase와 공유하는 계정 연결 동의 화면에 도달했다. 채팅 기록은 공유하지 않는다는 문구가 있다.
+- 계속 버튼 클릭은 자동 승인 검토가 해당 특정 프로필 공유 동의에 대한 명시적 승인이 없다고 거절했다. 클릭되지 않았으며 우회하지 않았다. 사용자에게 이 정보 공유와 계정 연결에 대한 승인만 요청한다. 운영 배포 자체의 승인을 다시 요구하는 것이 아니다.
