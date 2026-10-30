@@ -559,6 +559,9 @@ async function deleteRegisteredPartnerRow(rowId){
 }
 const parcelFields=[['ice_small','아이스 소'],['ice_medium','아이스 중'],['ice_large','아이스 대'],['paper_medium','종이 중'],['paper_large','종이 대']];
 const parcelBusy=new Set();
+function isMLParcelOrder(order){
+ return /^ml(?:거래처)?$/i.test(String(order.customer_name||'').replace(/\s+/g,''));
+}
 function parcelOrders(details=window.__parcelDetails||{}){
  return (state.orders||[]).filter(o=>o.order_status!=='취소'&&
   (String(o.order_source||'').trim()==='거래처시트'||String(o.receive_method||'').trim()==='택배'))
@@ -573,11 +576,10 @@ function parcelOrders(details=window.__parcelDetails||{}){
 
 function reorderParcelRows(){
  if(state.page!=='parcel')return;
- const body=document.querySelector('.parcel-table tbody');
- if(!body)return;
  for(const order of parcelOrders()){
   const row=$('parcel-save-'+order.id)?.closest('tr');
-  if(row?.parentElement===body)body.appendChild(row);
+  const body=row?.parentElement;
+  if(body?.matches('.parcel-table tbody'))body.appendChild(row);
  }
 }
 
@@ -590,18 +592,21 @@ async function renderParcelEditor(){
  const orders=parcelOrders(detail);
  window.__parcelDetails=detail;
  const heads=parcelFields.map(([,label])=>'<th>'+label+'</th>').join('');
- const rows=orders.map(o=>{
+ const parcelRow=o=>{
   const d=detail[o.id]||{};
   const boxes=parcelFields.map(([key,label])=>'<td><div class="parcel-number-control"><input class="parcel-qty-input" type="number" inputmode="numeric" min="0" max="1000" step="1" id="parcel-'+key+'-'+o.id+'" aria-label="'+esc(o.order_no+' '+label)+'" value="'+esc(d[key]??0)+'"><span class="parcel-step-stack"><button type="button" class="parcel-step-btn" data-id="'+o.id+'" data-key="'+key+'" aria-label="'+esc(o.order_no+' '+label+' 1개 증가')+'" onclick="stepParcelBox(this.dataset.id,this.dataset.key,1)">+</button><button type="button" class="parcel-step-btn" data-id="'+o.id+'" data-key="'+key+'" aria-label="'+esc(o.order_no+' '+label+' 1개 감소')+'" onclick="stepParcelBox(this.dataset.id,this.dataset.key,-1)">−</button></span></div></td>').join('');
   return '<tr><td><div class="parcel-order-number"><b>'+esc(o.order_no)+'</b><button type="button" class="parcel-detail-btn" data-id="'+o.id+'" aria-label="'+esc(o.order_no)+' 주문 상세보기" onclick="openParcelOrderDetail(this.dataset.id)">상세</button><button type="button" class="parcel-photo-btn" data-id="'+o.id+'" title="송장 입력 전에도 사진 첨부 가능" aria-label="'+esc(o.order_no)+' 주문 사진 첨부" onclick="openOrderPhotoManager(this.dataset.id)">사진 +</button><span class="parcel-photo-count" id="parcel-photo-count-'+o.id+'" aria-label="첨부사진 수">확인 중</span></div></td><td>'+esc(o.ship_date||'')+'</td><td style="min-width:240px;max-width:360px;white-space:normal;overflow-wrap:anywhere">'+esc(o.address||'미입력')+'</td>'
    +'<td><input class="parcel-track-input" id="parcel-track-'+o.id+'" aria-label="'+esc(o.order_no+' 송장번호')+'" placeholder="쉼표로 여러 개 입력" maxlength="1000" value="'+esc(d.tracking_numbers||'')+'"></td>'
    +boxes+'<td><button class="btn primary" id="parcel-save-'+o.id+'" data-id="'+o.id+'" onclick="saveInlineParcel(this.dataset.id)">저장</button></td>'
    +'</tr>';
- }).join('');
- page.innerHTML='<div class="top"><div><h1>송장·포장박스</h1><div class="muted">송장 미입력 주문이 먼저 표시됩니다. ML 등 거래처시트 승인 주문과 택배 주문만 표시합니다. 송장·박스 변경 후 해당 행의 저장을 누르세요.</div></div><div class="toolbar"><button class="btn secondary" onclick="renderParcelEditor()">새로고침</button><button class="btn primary" id="parcel-export-xlsx" onclick="exportParcelDetails()">사진 포함 엑셀 다운로드</button></div></div>'
-  +'<div class="panel"><p class="muted">박스 수량은 입력칸 오른쪽 위 + / 아래 − 버튼으로 1개씩 조절할 수 있습니다. 송장번호는 쉼표(,)로 구분합니다. 변경 후 행별 저장을 눌러야 엑셀에 반영됩니다.</p>'
+ };
+ const section=(title,group)=>'<section class="panel"><h2>'+title+' <span class="muted">('+group.length+'건)</span></h2>'
   +'<div class="tablewrap"><table class="table parcel-table"><thead><tr><th>주문번호</th><th>발송일</th><th>배송지</th><th>송장번호</th>'+heads+'<th>저장</th></tr></thead><tbody>'
-  +(rows||'<tr><td colspan="10"><div class="empty">주문이 없습니다.</div></td></tr>')+'</tbody></table></div></div>';
+  +(group.map(parcelRow).join('')||'<tr><td colspan="10"><div class="empty">주문이 없습니다.</div></td></tr>')+'</tbody></table></div></section>';
+ page.innerHTML='<div class="top"><div><h1>송장·포장박스</h1><div class="muted">ML 거래처와 일반 택배 주문을 따로 입력합니다. 각 목록에서 송장 미입력 주문이 먼저 표시됩니다.</div></div><div class="toolbar"><button class="btn secondary" onclick="renderParcelEditor()">새로고침</button><button class="btn primary" id="parcel-export-xlsx" onclick="exportParcelDetails()">사진 포함 엑셀 다운로드</button></div></div>'
+  +'<p class="muted">송장·박스 변경 후 해당 행의 저장을 누르세요. 박스 수량은 + / − 버튼으로 조절하며 여러 송장번호는 쉼표(,)로 구분합니다.</p>'
+  +section('ML 거래처 송장·포장박스',orders.filter(isMLParcelOrder))
+  +section('일반 택배·기타 거래처 송장·포장박스',orders.filter(o=>!isMLParcelOrder(o)));
  if(orders.length)void refreshParcelPhotoCounts(orders);
 }
 
