@@ -79,7 +79,7 @@ function syncOnePartnerSheet_(cfg) {
   const ss=SpreadsheetApp.openById(cfg.sheet_id);
   const sheet=ss.getSheetByName('주문입력');
   if(!sheet)throw new Error('주문입력 탭을 찾을 수 없습니다.');
-  const last=sheet.getLastRow(), endpoint=PropertiesService.getScriptProperties().getProperty('EDGE_URL');
+  const last=sheet.getLastRow(), endpoint=cfg.edge_url||PropertiesService.getScriptProperties().getProperty('EDGE_URL');
   if(!endpoint || !/^https:\/\/[a-z0-9-]+\.supabase\.co\/functions\/v1\//.test(endpoint))throw new Error('EDGE_URL을 확인하세요.');
   if(last<2)return;
   if(last>20000)throw new Error('주문 시트 행 수 초과');
@@ -225,3 +225,4 @@ function protectPartnerSheet_(ss,states) {
   if(matched)rangeProtection(sheet.getRange(row,1,1,8),'IROUN_APPROVED_V2:'+state.source_uid);
  }
 }
+
