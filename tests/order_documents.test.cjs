@@ -30,4 +30,4 @@ assert.match(transaction,/합계 2,000원/);
 assert.doesNotMatch(renderDocument({...sample,type:'delivery',rows:[{name:'<script>bad</script>',quantity:1}]}),/<script>bad<\/script>/);
 assert.equal((admin.match(/명세표 출력/g)||[]).length,2);
 assert.match(admin,/<script src="scripts\/order_documents\.js"><\/script>/);
-console.log('order_documents: 12 test assertions passed');
+console.log('order_documents: all checks passed');
