@@ -48,11 +48,11 @@
     return `<div class="field"><label for="${id}">${safe(label)}</label><input id="${id}" value="${safe(value)}" placeholder="${safe(placeholder)}"></div>`;
   }
   function currentUnitPrice(item){
-    const product=(window.state?.products||[]).find(p=>String(p.id)===String(item.product_id));
+    const product=(state?.products||[]).find(p=>String(p.id)===String(item.product_id));
     return product && Number.isSafeInteger(Number(product.price)) && Number(product.price)>=0?String(product.price):"";
   }
   function openChooser(orderId){
-    const order=(window.state?.orders||[]).find(x=>String(x.id)===String(orderId));
+    const order=(state?.orders||[]).find(x=>String(x.id)===String(orderId));
     if(!order){window.toast("주문 정보를 찾을 수 없습니다.");return;}
     const lines=Array.isArray(order.order_items)?order.order_items:[];
     if(!lines.length){window.toast("출력할 주문 상품이 없습니다.");return;}
@@ -77,7 +77,7 @@
     if(panel)panel.hidden=document.getElementById("doc-type")?.value==="delivery";
   }
   function printChosen(){
-    const draft=window.__orderDocumentDraft,order=(window.state?.orders||[]).find(x=>String(x.id)===draft?.orderId);
+    const draft=window.__orderDocumentDraft,order=(state?.orders||[]).find(x=>String(x.id)===draft?.orderId);
     if(!order){window.toast("주문을 다시 열어주세요.");return;}
     const type=document.getElementById("doc-type")?.value;
     if(!["transaction","delivery"].includes(type)){window.toast("출력 양식을 선택해주세요.");return;}
