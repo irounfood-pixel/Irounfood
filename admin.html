@@ -293,7 +293,7 @@ async function saveEditedOrder(){
  finally{draft.busy=false;if(button.isConnected){button.disabled=false;button.textContent='수정 저장';}}
 }
 
-function openOrder(id){const o=state.orders.find(x=>x.id===id);if(!o)return;openModal(`<div class="between"><h2 style="margin:0">주문 ${esc(o.order_no)}</h2><button class="btn light" onclick="closeModal()">닫기</button></div><div class="panel" style="margin-top:14px"><div class="formgrid"><div><b>고객/기관</b><div>${esc(o.customer_name||'')}</div></div><div><b>연락처</b><div>${esc(o.contact||'')}</div></div><div><b>배송일</b><div>${esc(o.ship_date||'')}</div></div><div><b>배송지</b><div>${esc(o.address||'주소 정보 없음')}</div></div><div><b>주문경로</b><div>${esc(o.order_source||'')}</div></div><div><b>요청사항</b><div>${esc(o.note||'')}</div></div></div><div style="margin-top:16px"><b>상품</b>${(o.order_items||[]).map(i=>`<div style="padding:8px 0;border-bottom:1px solid var(--line)">${esc(i.product_name_snapshot||i.kit_name)} × ${fmt(i.quantity)}</div>`).join('')}</div><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">${canEditOrder(o)?`<button class="btn secondary" onclick="openEditOrder('${o.id}')">주문 수정</button>`:''}${o.order_status!=='출고완료'&&o.order_status!=='취소'?`<button class="btn primary" onclick="shipOrder('${o.id}')">출고완료 처리</button>`:''}${o.order_status!=='출고완료'&&o.order_status!=='취소'?`<button class="btn danger" onclick="cancelOrder('${o.id}')">주문 취소</button>`:''}</div></div>`)}
+function openOrder(id){const o=state.orders.find(x=>x.id===id);if(!o)return;openModal(`<div class="between"><h2 style="margin:0">주문 ${esc(o.order_no)}</h2><button class="btn light" onclick="closeModal()">닫기</button></div><div class="panel" style="margin-top:14px"><div class="formgrid"><div><b>고객/기관</b><div>${esc(o.customer_name||'')}</div></div><div><b>연락처</b><div>${esc(o.contact||'')}</div></div><div><b>배송일</b><div>${esc(o.ship_date||'')}</div></div><div><b>배송지</b><div>${esc(o.address||'주소 정보 없음')}</div></div><div><b>주문경로</b><div>${esc(o.order_source||'')}</div></div><div><b>요청사항</b><div>${esc(o.note||'')}</div></div></div><div style="margin-top:16px"><b>상품</b>${(o.order_items||[]).map(i=>`<div style="padding:8px 0;border-bottom:1px solid var(--line)">${esc(i.product_name_snapshot||i.kit_name)} × ${fmt(i.quantity)}</div>`).join('')}</div><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px"><button type="button" class="btn light" onclick="openOrderDocumentChooser('${o.id}')">명세표 출력</button> ${canEditOrder(o)?`<button class="btn secondary" onclick="openEditOrder('${o.id}')">주문 수정</button>`:''}${o.order_status!=='출고완료'&&o.order_status!=='취소'?`<button class="btn primary" onclick="shipOrder('${o.id}')">출고완료 처리</button>`:''}${o.order_status!=='출고완료'&&o.order_status!=='취소'?`<button class="btn danger" onclick="cancelOrder('${o.id}')">주문 취소</button>`:''}</div></div>`)}
 const ORDER_PHOTO_BUCKET='iroun-order-photos';
 const PHOTO_LIMIT=5242880;
 const photoBusy=new Set();
@@ -633,6 +633,7 @@ function openParcelOrderDetail(id){
   +'<div style="margin-top:15px"><b>요청사항</b><p style="white-space:pre-wrap;overflow-wrap:anywhere;margin:6px 0 0">'+esc(o.note||'없음')+'</p></div></div>'
   +'<div class="panel"><h3 style="margin-top:0">주문 상품</h3><div class="tablewrap"><table class="table" style="min-width:0"><thead><tr><th>상품명</th><th class="right">수량</th></tr></thead><tbody>'+itemRows+'</tbody></table></div></div>'
   +'<div class="panel"><h3 style="margin:0 0 10px">저장된 송장·포장정보</h3><div class="field"><label>송장번호</label><div style="white-space:pre-wrap;overflow-wrap:anywhere">'+esc(d.tracking_numbers||'미등록')+'</div></div><div class="toolbar" style="margin-top:12px">'+boxes+'</div></div>'
+  +'<div class="toolbar" style="justify-content:flex-end;margin-top:14px"><button type="button" class="btn light" data-id="'+esc(o.id)+'" onclick="openOrderDocumentChooser(this.dataset.id)">명세표 출력</button></div>'
   +(canEditOrder(o)?'<div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn primary" data-id="'+esc(o.id)+'" onclick="openEditOrder(this.dataset.id)">주문 수정</button></div>':'')
  );
 }
@@ -911,5 +912,6 @@ async function saveMLPartnerRow(){
  try{const {error}=await db.rpc('admin_update_ml_row',{p_row_id:d.id,p_expected:d.expected,p_expected_updated_at:d.updated,p_input:Array.from({length:8},(_,i)=>$('ml-edit-'+i).value)});if(error)throw error;closeModal();await loadAll();await renderPartnerOrders(state.page==='requests');toast('ML 주문 수정 완료');}catch(e){toast(e.message);}finally{if(b.isConnected)b.disabled=false;}
 }
 </script>
+<script src="scripts/order_documents.js"></script>
 
 </body></html>
