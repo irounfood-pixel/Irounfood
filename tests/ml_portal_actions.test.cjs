@@ -25,5 +25,12 @@ test('foreign UID is rejected before any server mutation',()=>{
 test('editing checks the server approval status before legacy sheet update',()=>{
  const {context:c}=fixture();c.mlPortalApi_=()=>({rows:[{source_uid:a,status:'승인'}],deleted_uids:[]});
  c.updateMLPortalOrderLegacy_=()=>{throw Error('must not write');};
- assert.throws(()=>c.updateMLPortalOrder(2,fields,fields),/승인 취소/);
+ assert.throws(()=>c.updateMLPortalOrder(2,fields,fields),/출고완료/);
+});
+test('approved edit calls update directly and writes the canonical reply without cancellation',()=>{
+ const {context:c}=fixture(),wanted=[...fields];wanted[3]='8';let actions=[],writes=[];
+ const state={source_uid:a,status:'승인',approved_order_id:'same-order',order_status:'주문접수',updated_at:'v1',fields};
+ c.mlPortalApi_=(action,uid,expected,updated,input)=>{actions.push(action);if(action==='status')return {rows:[state],deleted_uids:[]};assert.equal(action,'update');assert.equal(uid,a);assert.equal(updated,'v1');assert.equal(JSON.stringify(input),JSON.stringify(wanted));return {rows:[{...state,fields:wanted}]};};
+ c.mlValidate_=()=>({rows:[wanted],errors:[]});c.mlProducts_=()=>[];c.mlWrite_=(sheet,row,rows)=>writes.push({row,rows});
+ assert.equal(c.updateMLPortalOrder(2,fields,wanted).ok,true);assert.deepEqual(actions,['status','update']);assert.equal(writes.length,1);assert.equal(writes[0].row,2);assert.equal(writes[0].rows[0][3],'8');
 });

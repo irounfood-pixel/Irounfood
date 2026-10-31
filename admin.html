@@ -148,7 +148,7 @@ async function readTable(label,queryFactory){
 }
 async function loadAll(){state.loading=true;state.errors=[];try{
  const [os,pis,ii,cr,mv]=await Promise.all([
-  readTable('주문',()=>db.from('orders').select('*,order_items(*)').order('ship_date',{ascending:true}).order('order_no',{ascending:true})),
+  readTable('주문',()=>db.from('orders').select('*,order_items(*)').is('deleted_at',null).order('ship_date',{ascending:true}).order('order_no',{ascending:true})),
   readTable('상품',()=>db.from('products').select('*').order('name')),
   readTable('재고품목',()=>db.from('inventory_items').select('*').order('name')),
   readTable('고객주문신청',()=>db.from('customer_order_requests').select('*,customer_order_request_items(*)').order('created_at',{ascending:false})),
@@ -510,16 +510,16 @@ async function renderPartnerOrders(embedded=false){
  if(error){target.innerHTML='<div class="top"><h1>거래처 주문 승인</h1></div><div class="panel dangertext">'+esc(error.message)+'</div>';return}
  const rows=data||[], pending=rows.filter(r=>['등록','승인대기'].includes(r.status));
  window.__partnerRows=rows; partnerSelected.clear();
- const table=pending.map(r=>'<tr><td><input type="checkbox" data-partner-id="'+esc(r.id)+'"></td><td>'+esc(r.partner_sheet_sources?.partner_name||'-')+'</td><td>'+esc(r.order_date)+'</td><td>'+esc(r.ship_date)+'</td><td>'+esc(r.recipient)+'</td><td>'+esc(r.contact)+'</td><td>'+esc(r.product_name)+'</td><td>'+esc(r.quantity)+'</td><td>'+esc(r.address)+'</td><td>'+esc(r.note||'')+'</td><td><a class="btn light" target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/'+encodeURIComponent(r.sheet_id)+'/edit#range=A'+Number(r.source_row)+':H'+Number(r.source_row)+'">수정</a> <button class="btn danger" onclick="deleteRegisteredPartnerRow(\''+r.id+'\')">완전 삭제</button></td></tr>').join('');
+ const table=pending.map(r=>'<tr><td><input type="checkbox" data-partner-id="'+esc(r.id)+'"></td><td>'+esc(r.partner_sheet_sources?.partner_name||'-')+'</td><td>'+esc(r.order_date)+'</td><td>'+esc(r.ship_date)+'</td><td>'+esc(r.recipient)+'</td><td>'+esc(r.contact)+'</td><td>'+esc(r.product_name)+'</td><td>'+esc(r.quantity)+'</td><td>'+esc(r.address)+'</td><td>'+esc(r.note||'')+'</td><td><a class="btn light" target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/'+encodeURIComponent(r.sheet_id)+'/edit#range=A'+Number(r.source_row)+':H'+Number(r.source_row)+'">수정</a> <button class="btn danger" onclick="deleteRegisteredPartnerRow(\''+r.id+'\')">삭제</button></td></tr>').join('');
  target.innerHTML='<div class="top"><h2>Google Sheets 거래처 주문 승인</h2><button class="btn light" onclick="renderPartnerOrders('+embedded+')">새로고침</button></div>'
  +'<div class="panel"><b>등록 '+pending.length+'행</b><p class="muted">동일 거래처·주문일·발송일·수령인·연락처·주소의 상품 행만 함께 선택하세요. 동일 정보의 별도 주문은 구분하여 승인하세요.</p>'
  +'<div class="toolbar"><button class="btn primary" onclick="approveSelectedPartnerRows()">선택한 행을 한 주문으로 승인</button>'
  +'<button class="btn danger" onclick="rejectSelectedPartnerRows()">선택 반려</button></div>'
  +'<div class="tablewrap"><table class="table"><thead><tr><th>선택</th><th>거래처</th><th>주문일</th><th>발송일</th><th>수령인</th><th>연락처</th><th>상품</th><th>수량</th><th>배송지</th><th>요청</th><th>관리</th></tr></thead><tbody>'
  +(table||'<tr><td colspan="11" class="empty">현재 등록 주문이 없습니다.</td></tr>')+'</tbody></table></div></div>'
- +'<div class="panel"><b>승인 완료 / 반려 기록</b><p class="muted">승인된 행은 거래처 시트 변경만으로 운영 주문이 변경되지 않습니다.</p>'
+ +'<div class="panel"><b>승인 완료 / 반려 기록</b><p class="muted">ML 주문은 승인 상태에서 바로 수정·삭제할 수 있습니다.</p>'
  +'<div class="tablewrap"><table class="table"><thead><tr><th>상태</th><th>거래처</th><th>발송일</th><th>수령인</th><th>상품</th><th>운영 주문 ID</th><th>관리</th></tr></thead><tbody>'
- +(rows.filter(r=>r.status==='승인'||r.status==='반려').map(r=>'<tr><td>'+esc(r.status)+'</td><td>'+esc(r.partner_sheet_sources?.partner_name||'')+'</td><td>'+esc(r.ship_date)+'</td><td>'+esc(r.recipient)+'</td><td>'+esc(r.product_name)+'</td><td>'+esc(r.approved_order_id||'-')+'</td><td>'+(r.status==='승인'&&r.approved_order_id?'<button class="btn light" onclick="revertPartnerApproval(\''+r.id+'\')">승인 취소 → 등록</button>':'')+'</td></tr>').join('')||'<tr><td colspan="7">처리 이력이 없습니다.</td></tr>')+'</tbody></table></div></div>';
+ +(rows.filter(r=>r.status==='승인'||r.status==='반려').map(r=>'<tr><td>'+esc(r.status)+'</td><td>'+esc(r.partner_sheet_sources?.partner_name||'')+'</td><td>'+esc(r.ship_date)+'</td><td>'+esc(r.recipient)+'</td><td>'+esc(r.product_name)+'</td><td>'+esc(r.approved_order_id||'-')+'</td><td>'+(r.partner_sheet_sources?.partner_name==='ML'?'<button class="btn light" onclick="editMLPartnerRow(\''+r.id+'\')">수정</button> <button class="btn danger" onclick="deleteRegisteredPartnerRow(\''+r.id+'\')">삭제</button>':(r.status==='승인'&&r.approved_order_id?'<button class="btn light" onclick="revertPartnerApproval(\''+r.id+'\')">승인 취소 → 등록</button>':''))+'</td></tr>').join('')||'<tr><td colspan="7">처리 이력이 없습니다.</td></tr>')+'</tbody></table></div></div>';
 }
 async function approveSelectedPartnerRows(){
  const ids=partnerIds();if(!ids.length)return toast('승인할 상품 행을 선택해주세요.');
@@ -550,8 +550,8 @@ async function revertPartnerApproval(rowId){
 }
 async function deleteRegisteredPartnerRow(rowId){
  const row=(window.__partnerRows||[]).find(r=>r.id===rowId);
- if(!row||!['등록','승인대기'].includes(row.status))return toast('등록 상태의 주문만 완전 삭제할 수 있습니다.');
- if(!confirm('이 거래처 주문을 완전 삭제할까요? 공유 시트의 해당 행도 다음 동기화에서 삭제되며 되돌릴 수 없습니다.'))return;
+ if(!row||!(['등록','승인대기','반려'].includes(row.status)||row.status==='승인'&&row.partner_sheet_sources?.partner_name==='ML'))return toast('삭제할 주문을 확인해 주세요.');
+ if(!confirm('이 거래처 주문을 삭제할까요? 공유 시트의 해당 행도 다음 동기화에서 삭제되며 되돌릴 수 없습니다.'))return;
  const {error}=await db.rpc('admin_manage_partner_row',{p_row_id:rowId,p_action:'delete'});
  if(error)return toast('삭제 실패: '+error.message);
  toast('등록 주문을 삭제했습니다. 공유 시트는 다음 동기화에서 반영됩니다.');
@@ -898,4 +898,18 @@ async function saveInlineParcel(id){
 
 
 </script>
+<script>
+function mlPartnerFields(r){return [r.order_date,r.ship_date,r.product_name,String(r.quantity),r.recipient,r.contact,r.address,r.note||''];}
+function editMLPartnerRow(id){
+ const r=(window.__partnerRows||[]).find(r=>r.id===id);if(!r)return;
+ const names=['주문일','발송일','상품명','수량','수령인','연락처','배송지','요청사항'];
+ window.__mlEdit={id,updated:r.updated_at,expected:mlPartnerFields(r)};
+ openModal('<h2>ML 주문 수정</h2><p>승인 상태와 기존 주문번호를 유지합니다. 같은 주문의 배송정보는 함께 변경됩니다.</p><div class="formgrid">'+mlPartnerFields(r).map((v,i)=>'<div class="field"><label>'+names[i]+'</label><input id="ml-edit-'+i+'" value="'+esc(v)+'" type="'+(i<2?'date':i===3?'number':'text')+'"></div>').join('')+'</div><button class="btn primary" id="ml-save" onclick="saveMLPartnerRow()">수정 저장</button>');
+}
+async function saveMLPartnerRow(){
+ const d=window.__mlEdit,b=$('ml-save');if(!d||b.disabled)return;b.disabled=true;
+ try{const {error}=await db.rpc('admin_update_ml_row',{p_row_id:d.id,p_expected:d.expected,p_expected_updated_at:d.updated,p_input:Array.from({length:8},(_,i)=>$('ml-edit-'+i).value)});if(error)throw error;closeModal();await loadAll();await renderPartnerOrders(state.page==='requests');toast('ML 주문 수정 완료');}catch(e){toast(e.message);}finally{if(b.isConnected)b.disabled=false;}
+}
+</script>
+
 </body></html>

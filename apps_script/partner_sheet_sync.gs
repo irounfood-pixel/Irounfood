@@ -110,6 +110,7 @@ function syncOnePartnerSheet_(cfg) {
   if(result.status_rows){
    // Remove only rows that were explicitly deleted via authenticated DB action.
    if(Array.isArray(result.deleted_uids))removeDeletedPartnerRows_(sheet,result.deleted_uids);
+   result.status_rows=mirrorMLApproved_(sheet,result.status_rows);
    writePartnerStatus_(ss,result.status_rows);
    writePartnerShipping_(ss,result.status_rows);
    protectPartnerSheet_(ss,result.status_rows);
@@ -226,3 +227,17 @@ function protectPartnerSheet_(ss,states) {
  }
 }
 
+
+// Only ML status responses include canonical fields. Other partner sheets are untouched.
+function mirrorMLApproved_(sheet,states){
+ return states.map(item=>{
+  if(item.status!=='승인'||!item.approved_order_id||!Array.isArray(item.fields))return item;
+  let row=0;
+  for(let n=2;n<=sheet.getLastRow();n++)if(sheet.getRange(n+':'+n).getDeveloperMetadata().some(m=>m.getKey()===ROW_KEY&&m.getValue()===item.source_uid)){row=n;break;}
+  if(!row){row=sheet.getLastRow()+1;if(row>sheet.getMaxRows())sheet.insertRowsAfter(sheet.getMaxRows(),1);sheet.getRange(row+':'+row).addDeveloperMetadata(ROW_KEY,item.source_uid,SpreadsheetApp.DeveloperMetadataVisibility.DOCUMENT);}
+  const fields=item.fields.map(v=>String(v??'')),old=sheet.getRange(row,1,1,8).getDisplayValues()[0];
+  const key=r=>r.map((v,i)=>i<2?dateString_(v,{}):String(v).trim()).join('\u001f');
+  if(key(old)!==key(fields)){sheet.getRange(row,6).setNumberFormat('@');sheet.getRange(row,1,1,8).setValues([fields.map(v=>/^[=+@\-]/.test(v)?"'"+v:v)]);}
+  return {...item,source_row:row};
+ });
+}
