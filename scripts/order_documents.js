@@ -71,6 +71,9 @@
     return `<div class="field"><label for="${id}">${safe(label)}</label><input id="${id}" value="${safe(value)}" placeholder="${safe(placeholder)}"></div>`;
   }
   function currentUnitPrice(item){
+    // Prefer the recorded order-time price, if present, over today's catalog price.
+    const snapshot=item.unit_price_snapshot;
+    if(snapshot!==null&&snapshot!==undefined&&snapshot!==""&&Number.isSafeInteger(Number(snapshot))&&Number(snapshot)>=0)return String(snapshot);
     const product=(state?.products||[]).find(p=>String(p.id)===String(item.product_id));
     return product && Number.isSafeInteger(Number(product.price)) && Number(product.price)>=0?String(product.price):"";
   }
@@ -91,7 +94,7 @@
 <div class="panel"><div class="field"><label for="doc-type">양식 선택</label><select id="doc-type" onchange="toggleOrderDocumentType()"><option value="transaction">거래명세표 (금액·부가세 포함)</option><option value="delivery">납품명세표 (상품·수량만)</option></select></div><div class="formgrid" style="margin-top:14px">${sellerHtml}</div>
 <div class="toolbar" style="margin-top:12px;align-items:center"><button type="button" id="doc-save-supplier" class="btn secondary" onclick="saveOrderSupplierProfile()">공급자 정보 저장</button><span class="muted">관리자만 열람·수정할 수 있는 서버에 저장됩니다. 인쇄 전에 정보를 확인해주세요.</span></div></div>
 <div class="panel" id="doc-price-panel"><h3 style="margin:0 0 8px">상품별 실제 거래 단가·과세 확인</h3>
-<div class="muted">기본 입력값은 현재 상품관리 판매가격입니다. 주문 당시 가격·할인·과세 여부가 자동 저장된 값이 아닙니다. 실제 거래내용에 맞게 확인·수정하세요.</div>
+<div class="muted">기본 입력값은 주문 당시 저장된 단가가 있으면 우선 사용하고, 없으면 현재 상품 판매가격을 사용합니다. 할인·과세 여부를 확인하고 실제 거래내용에 맞게 수정하세요.</div>
 <div class="tablewrap"><table class="table" style="min-width:520px"><thead><tr><th>상품명</th><th>수량</th><th>단가(원)</th><th>과세 유형</th></tr></thead><tbody>${lineHtml}</tbody></table></div>
 <label style="display:flex;align-items:center;gap:7px;margin-top:12px;font-size:12px"><input type="checkbox" id="doc-prices-confirmed">실제 거래 단가와 과세 구분을 확인했습니다.</label></div>
 <div class="toolbar" style="margin-top:16px;justify-content:flex-end"><button type="button" class="btn light" onclick="closeModal()">취소</button><button type="button" class="btn primary" onclick="printChosenOrderDocument()">인쇄 / PDF 저장</button></div>`);
