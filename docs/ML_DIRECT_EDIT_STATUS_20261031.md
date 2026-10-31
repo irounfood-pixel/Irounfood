@@ -15,10 +15,13 @@
 
 운영 Supabase, main, 운영 Google 소스/배포는 변경하지 않았다.
 
-## 배포 차단
+## 운영 배포 완료 (2026-10-31)
 
-기존 ML 편집기 `https://script.google.com/home/projects/1Hrq4ekWBAgh59R4sKLYKeNCeAeGezOUwXfnB2UngXJjSC0Oq8MVVJF0T/edit`를 여는 동작에 브라우저 자동 승인 검토가 developers.google.com 원본 관찰 권한이 없다고 거절했다. 사용자의 수동 거절이 아니다. 우회하거나 재시도하지 않았다.
-
-계속할 때 Google Apps Script 편집기 및 이 과정에서 필요한 공식 Google developers.google.com 접근에 대한 승인 후, 최신 운영 Code.gs를 UI로 다시 읽고 보관한다. `node scripts/update_ml_direct_edit.cjs original.gs patched.gs`로 변환하고 별도 테스트 Google 앱에서 실제 승인 상태 수정/삭제 및 사진/엑셀 회귀를 검증한다. 관리자 동기화 원본의 설정·트리거는 보존하며 새 mirrorMLApproved_ 포함 동기화 코드를 설치한다. 검증 후 운영 SQL/Edge, ML 기존 배포 URL을 유지한 새 버전, 관리자 main을 함께 반영한다.
-
-완료 전 실제 운영 주문을 시험 목적으로 삭제하지 않는다. 기존 운영 반영 승인과 요구사항은 유효하며 다시 요구하지 않는다. 이번에 필요한 것은 자동 검토가 차단한 공식 Google 도메인 접근 승인이다.
+- 사용자가 공식 Google 도메인 접근을 허용했고 관리자 Google 계정 보안 로그인을 완료했다.
+- 운영 SQL ml_approved_direct_edit 및 partner-portal-manage v2 적용.
+- ML 기존 웹앱 배포 ID/URL 유지, 버전 7 → 8 갱신. 기존 모든 사용자 접근 설정 유지.
+- 실제 운영 ML 링크의 승인 화과자/튀밥강정 카드에서 입력 내용 수정·삭제 버튼 확인. 승인 취소 없이 수정 폼 진입 성공. 실제 운영 주문은 시험 목적으로 수정·삭제하지 않았다.
+- 관리자 코드 PR #3 병합: 3a9c110c3ff3308a628c961ad05fe38da6dbe5f8. Pages run 41150616365 성공.
+- 기존 독립형 동기화 프로젝트 11YiQMRlv7VKmLdqzyZx-uRI0okEWKPi-SVlWV6g_7PfGwCX5GD5_xjg_에서 설정·트리거를 보존해 mirrorMLApproved_ 연결 추가 저장. 09:33:42 시간 기반 syncAllPartnerSheets 실행 완료(28.97초), 로그 오류 없음.
+- 운영 주문 48건, order_hash cac6b593b62580ee0f2a6985c9e102df, items_hash 615762f75b1b3790fbb066450a93573e, inventory_hash e2c9cb50f1d4108b4b9259a5d09dc908가 배포 전과 동일. 승인 ML 상품 연결 누락 0건.
+- 실제 저장·삭제는 별도 테스트 DB 회귀와 Node 검증으로 확인했으며, 운영 화면에서는 버튼 표시와 수정 폼 진입을 확인했다. 기존 사진·엑셀 구현은 보존했다.
