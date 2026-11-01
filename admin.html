@@ -56,6 +56,7 @@
 </div>
 <div id="modal" class="modal hidden"><div class="modalbox" id="modalBox"></div></div>
 <div id="toast" class="toast hidden"></div>
+<script src="./scripts/order_photo_drive.js?v=20261101"></script>
 <script>
 const SUPABASE_URL='https://iqopdxrnkmpdivzndkxq.supabase.co';
 const SUPABASE_KEY='sb_publishable_8jMegFjVcyhp1SIRZHosAQ_fVoxo8Nr';
@@ -295,6 +296,7 @@ async function saveEditedOrder(){
 
 function openOrder(id){const o=state.orders.find(x=>x.id===id);if(!o)return;openModal(`<div class="between"><h2 style="margin:0">주문 ${esc(o.order_no)}</h2><button class="btn light" onclick="closeModal()">닫기</button></div><div class="panel" style="margin-top:14px"><div class="formgrid"><div><b>고객/기관</b><div>${esc(o.customer_name||'')}</div></div><div><b>연락처</b><div>${esc(o.contact||'')}</div></div><div><b>배송일</b><div>${esc(o.ship_date||'')}</div></div><div><b>배송지</b><div>${esc(o.address||'주소 정보 없음')}</div></div><div><b>주문경로</b><div>${esc(o.order_source||'')}</div></div><div><b>요청사항</b><div>${esc(o.note||'')}</div></div></div><div style="margin-top:16px"><b>상품</b>${(o.order_items||[]).map(i=>`<div style="padding:8px 0;border-bottom:1px solid var(--line)">${esc(i.product_name_snapshot||i.kit_name)} × ${fmt(i.quantity)}</div>`).join('')}</div><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px"><button type="button" class="btn light" onclick="openOrderDocumentChooser('${o.id}')">명세표 출력</button> ${canEditOrder(o)?`<button class="btn secondary" onclick="openEditOrder('${o.id}')">주문 수정</button>`:''}${o.order_status!=='출고완료'&&o.order_status!=='취소'?`<button class="btn primary" onclick="shipOrder('${o.id}')">출고완료 처리</button>`:''}${o.order_status!=='출고완료'&&o.order_status!=='취소'?`<button class="btn danger" onclick="cancelOrder('${o.id}')">주문 취소</button>`:''}</div></div>`)}
 const ORDER_PHOTO_BUCKET='iroun-order-photos';
+const driveUploadRequestIds=new WeakMap();
 const PHOTO_LIMIT=5242880;
 const photoBusy=new Set();
 async function loadOrderPhotos(orderId){
@@ -328,31 +330,31 @@ async function uploadOrderPhotos(orderId){
  let completed=0;
  try{
   for(const file of files){
-   const storagePath=orderId+'/'+crypto.randomUUID()+'.'+validTypes[file.type];
-   const {error:uploadError}=await db.storage.from(ORDER_PHOTO_BUCKET).upload(storagePath,file,{cacheControl:'3600',contentType:file.type,upsert:false});
-   if(uploadError)throw uploadError;
-   const {error:metadataError}=await db.from('order_photos').insert({
-    order_id:orderId,storage_path:storagePath,original_name:file.name.slice(0,255),content_type:file.type,size_bytes:file.size
-   });
-   if(metadataError){await db.storage.from(ORDER_PHOTO_BUCKET).remove([storagePath]);throw metadataError;}
+   let photoId=driveUploadRequestIds.get(file);
+   if(!photoId){photoId=crypto.randomUUID();driveUploadRequestIds.set(file,photoId);}
+   await IrounPhotoDrive.upload(db,orderId,file,photoId);
    completed++;
   }
   toast('주문 '+order.order_no+' 사진 '+completed+'장 등록 완료');
  }catch(e){toast('사진 업로드 오류 ('+completed+'장 완료): '+(e.message||e))}
  finally{
-  photoBusy.delete(orderId);input.disabled=false;button.disabled=false;button.textContent='사진 올리기';input.value='';
+  photoBusy.delete(orderId);input.disabled=false;button.disabled=false;button.textContent='사진 올리기';if(completed===files.length)input.value='';
   await loadOrderPhotos(orderId);
   if(['parcel','mlparcel'].includes(state.page))void refreshParcelPhotoCounts();
  }
 }
 async function removeOrderPhoto(photoId,orderId){
  if(!confirm('선택한 주문 사진을 삭제할까요?'))return;
- const {data:photo,error:readError}=await db.from('order_photos').select('storage_path').eq('id',photoId).eq('order_id',orderId).single();
+ const {data:photo,error:readError}=await db.from('order_photos').select('id,order_id,storage_path').eq('id',photoId).eq('order_id',orderId).single();
  if(readError)return toast('사진 확인 실패: '+readError.message);
+ if(IrounPhotoDrive.isDrive(photo)){
+  try{await IrounPhotoDrive.trash(db,orderId,photoId);}catch(e){return toast('사진 삭제 실패: '+e.message);}
+ }else{
  const {error:storageError}=await db.storage.from(ORDER_PHOTO_BUCKET).remove([photo.storage_path]);
  if(storageError)return toast('사진 파일 삭제 실패: '+storageError.message);
  const {error:deleteError}=await db.from('order_photos').delete().eq('id',photoId).eq('order_id',orderId);
  if(deleteError)return toast('사진 정보 삭제 실패: '+deleteError.message);
+ }
  toast('사진을 삭제했습니다.');
  loadOrderPhotos(orderId);
  if(['parcel','mlparcel'].includes(state.page))void refreshParcelPhotoCounts();
@@ -710,7 +712,7 @@ async function loadOrderPhotosForExcel(orders){
   const group=ids.slice(i,i+50);
   for(let page=0;;page++){
    const {data,error}=await db.from('order_photos')
-    .select('order_id,storage_path,original_name,created_at')
+    .select('id,order_id,storage_path,original_name,created_at')
     .in('order_id',group).order('created_at',{ascending:true})
     .range(page*500,page*500+499);
    if(error)throw new Error('첨부사진 조회 실패: '+error.message);
@@ -805,8 +807,12 @@ async function exportParcelDetails(){
     const photo=photos[i],order=orderById.get(photo.order_id);
     if(!order)continue;
     if(button)button.textContent='사진 포함 중 ('+(i+1)+'/'+photos.length+')';
-    const {data:blob,error:downloadError}=await db.storage
-     .from(ORDER_PHOTO_BUCKET).download(photo.storage_path);
+    let blob,downloadError;
+    if(IrounPhotoDrive.isDrive(photo)){
+     try{blob=await IrounPhotoDrive.read(db,photo);}catch(e){downloadError=e;}
+    }else{
+     ({data:blob,error:downloadError}=await db.storage.from(ORDER_PHOTO_BUCKET).download(photo.storage_path));
+    }
     if(downloadError||!blob)throw new Error(
      '주문 '+order.order_no+' 사진 '+(photo.original_name||'')+'을(를) 가져오지 못했습니다: '+(downloadError?.message||'파일 없음'));
     const converted=await photoBlobToExcelImage(blob);
@@ -915,3 +921,4 @@ async function saveMLPartnerRow(){
 <script src="scripts/order_documents.js"></script>
 
 </body></html>
+
