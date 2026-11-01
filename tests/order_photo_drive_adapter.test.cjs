@@ -1,0 +1,5 @@
+const test=require('node:test'),assert=require('node:assert/strict');
+const adapter=require('../scripts/order_photo_drive.js');
+test('only exact per-order Drive namespace uses Google adapter',()=>{assert.equal(adapter.isDrive({order_id:'a',storage_path:'a/drive/file123'}),true);assert.equal(adapter.isDrive({order_id:'b',storage_path:'a/drive/file123'}),false);assert.equal(adapter.isDrive({order_id:'a',storage_path:'a/legacy.jpg'}),false);});
+test('Drive bytes remain unchanged for Excel consumers',async()=>{const db={functions:{invoke:async()=>({data:{ok:true,base64:'AAH//w==',content_type:'image/jpeg'}})}};const blob=await adapter.read(db,{id:'photo',order_id:'order'});assert.deepEqual([...new Uint8Array(await blob.arrayBuffer())],[0,1,255,255]);});
+test('server error message is preserved',async()=>{const db={functions:{invoke:async()=>({error:{message:'HTTP error',context:{json:async()=>({error:'권한이 없습니다.'})}}})}};await assert.rejects(()=>adapter.trash(db,'order','photo'),/권한이 없습니다/);});

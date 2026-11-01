@@ -2,6 +2,7 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
+const crypto=require('node:crypto');
 const source=fs.readFileSync(__dirname+'/../apps_script/order_photo_drive.gs','utf8');
 const order='11111111-1111-4111-8111-111111111111';
 const photo='22222222-2222-4222-8222-222222222222';
@@ -35,3 +36,8 @@ test('photo from another order cannot be requested',()=>{const e=env(url=>url.in
 test('root folder traversal is denied',()=>{const e=env(url=>url.includes('order_photos')?[{id:photo,order_id:order,storage_path:order+'/drive/file_1234567890'}]:[{id:order}]);e.folder.getName=()=>'different-order';assert.throws(()=>e.ctx.photoHandle_(request({action:'read'})),/전용 폴더/)});
 test('trash rollback restores Drive file if metadata deletion fails',()=>{const e=env((url,options)=>options.method==='delete'?{status:403,data:{}}:url.includes('order_photos')?[{id:photo,order_id:order,storage_path:order+'/drive/file_1234567890'}]:[{id:order}]);assert.throws(()=>e.ctx.photoHandle_(request({action:'trash'})),/권한/);assert.equal(e.trashed,false)});
 test('legacy Supabase files are rejected by Drive endpoint',()=>{const e=env(url=>url.includes('order_photos')?[{storage_path:order+'/legacy.jpg'}]:[{id:order}]);assert.throws(()=>e.ctx.photoHandle_(request({action:'read'})),/드라이브 사진/);assert.equal(e.touched,false)});
+const mlToken='AKfycby0_WPs43-J21OUS0d3SaByS7yK9X-r2HL1JbLvDZvZj0NV8xPNQ0JB8BPk2H-fhqfq';
+function mlEnv(manifest){const e=env(()=>manifest);e.ctx.Utilities.DigestAlgorithm={SHA_256:'SHA256'};e.ctx.Utilities.Charset={UTF_8:'utf8'};e.ctx.Utilities.computeDigest=(_algo,value)=>Array.from(crypto.createHash('sha256').update(value).digest());return e;}
+test('ML read rejects an unrelated capability before network and Drive access',()=>{const e=mlEnv({ok:true,photos:[]});assert.throws(()=>e.ctx.photoHandle_(request({action:'mlRead',access_token:'A'.repeat(60)})),/접근 권한/);assert.equal(e.calls.length,0);assert.equal(e.touched,false)});
+test('ML read cannot use a caller file ID absent from current approved manifest',()=>{const e=mlEnv({ok:true,photos:[]});assert.throws(()=>e.ctx.photoHandle_(request({action:'mlRead',access_token:mlToken,file_id:'file_1234567890'})),/연결된 사진/);assert.equal(e.touched,false)});
+test('ML read returns unchanged bytes only for current manifest photo and folder',()=>{const e=mlEnv({ok:true,photos:[{id:photo,order_id:order,url:'drive:file_1234567890',content_type:'image/jpeg'}]});const result=e.ctx.photoHandle_(request({action:'mlRead',access_token:mlToken}));assert.equal(result.base64,bytes.toString('base64'));assert.equal(e.calls.length,1);assert.ok(e.calls[0].url.endsWith('/functions/v1/partner-photo-export'));});

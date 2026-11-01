@@ -34,6 +34,7 @@ function photoDb_(token, path, method, body) {
   return text ? JSON.parse(text) : null;
 }
 function photoHandle_(p) {
+  if (p && p.action==='mlRead') return photoMLRead_(p);
   if (!p || !['upload','read','trash'].includes(p.action) || !PHOTO_UUID_.test(p.order_id || '')) throw Error('올바르지 않은 사진 요청입니다.');
   if (typeof p.access_token!=='string' || p.access_token.length>8192 || !/^[A-Za-z0-9_.-]+$/.test(p.access_token)) throw Error('주문관리 로그인이 필요합니다.');
   // RLS is orders_admin_select/private.is_admin(), not a client-provided role.
@@ -118,6 +119,21 @@ function photoSignature_(b,type) {
   if(type==='image/png')return [137,80,78,71,13,10,26,10].every((v,i)=>u[i]===v);
   return u.length>=12 && [82,73,70,70].every((v,i)=>u[i]===v) && [87,69,66,80].every((v,i)=>u[i+8]===v);
 }
+/** Read-only use of the existing ML export capability. No new ML Drive OAuth scope. */
+function photoMLRead_(p) {
+  if (!PHOTO_UUID_.test(p.order_id||'') || !PHOTO_UUID_.test(p.photo_id||'') || typeof p.access_token!=='string' || !/^[A-Za-z0-9_-]{40,180}$/.test(p.access_token)) throw Error('ML 사진 접근 권한을 확인해주세요.');
+  const hash=Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,p.access_token,Utilities.Charset.UTF_8).map(x=>((x+256)%256).toString(16).padStart(2,'0')).join('');
+  if(hash!=='48c94e428fe357deb2ff74e78bdc3c37543b0c80d301231a334f15da3b3e8de7') throw Error('ML 사진 접근 권한을 확인해주세요.');
+  const response=UrlFetchApp.fetch(PHOTO_DB_URL_+'/functions/v1/partner-photo-export',{method:'post',contentType:'application/json',headers:{Authorization:'Bearer '+p.access_token},payload:'{}',muteHttpExceptions:true});
+  if(response.getResponseCode()!==200) throw Error('ML 사진 목록 확인에 실패했습니다.');
+  const manifest=JSON.parse(response.getContentText());
+  if(!manifest.ok || !Array.isArray(manifest.photos) || manifest.photos.length>200) throw Error('ML 사진 목록 확인에 실패했습니다.');
+  const row=manifest.photos.find(x=>x.id===p.photo_id && x.order_id===p.order_id);
+  if(!row || !/^drive:[A-Za-z0-9_-]{10,200}$/.test(row.url||'') || !['image/jpeg','image/png','image/webp'].includes(row.content_type)) throw Error('해당 ML 주문에 연결된 사진만 받을 수 있습니다.');
+  const file=DriveApp.getFileById(row.url.slice(6));photoCheckParents_(file,p.order_id);
+  if(file.isTrashed() || file.getSize()>PHOTO_MAX_BYTES_) throw Error('사진 파일을 확인해주세요.');
+  return {ok:true,content_type:row.content_type,base64:Utilities.base64Encode(file.getBlob().getBytes())};
+}
 /** Run only after the owner has approved the displayed Google scopes. Read-only check. */
 function checkPhotoDriveConnection() {
   const folder=DriveApp.getFolderById(PHOTO_DRIVE_ROOT_);
@@ -127,4 +143,26 @@ function checkPhotoDriveConnection() {
   if(status<200 || status>=500) throw Error('주문 서버 연결을 확인해주세요.');
   console.log('개인 구글 드라이브 비공개 주문사진 폴더 연결 준비 완료');
   return {ok:true};
+}
+/** Owner-run installation check. Only creates then trashes its own disposable test folder. */
+function verifyPhotoDriveInstallation() {
+  checkPhotoDriveConnection();
+  const root=DriveApp.getFolderById(PHOTO_DRIVE_ROOT_);
+  const folder=root.createFolder('__connection_test_'+Utilities.getUuid());
+  let file;
+  try {
+    const bytes=Utilities.base64Decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=');
+    file=folder.createFile(Utilities.newBlob(bytes,'image/png','connection-test.png'));
+    if(file.getSharingAccess()!==DriveApp.Access.PRIVATE || Utilities.base64Encode(file.getBlob().getBytes())!==Utilities.base64Encode(bytes))throw Error('비공개 원본 저장 검증 실패');
+    console.log('실제 Drive 비공개 저장·원본 바이트 조회 검증 통과');
+  }finally{if(file)file.setTrashed(true);folder.setTrashed(true);}
+  const service='https://script.google.com/macros/s/AKfycbzi85enDr1GuIpCd4AhRdqfsqJs7TWu7ksVb2MlfN3p2DSoWRyCDXl9AfHq1rlN42dE/exec';
+  const order='11111111-1111-4111-8111-111111111111';
+  const result=UrlFetchApp.fetch(service,{method:'post',contentType:'text/plain',payload:JSON.stringify({action:'read',order_id:order,photo_id:order,access_token:'invalid.token.for.security.check'}),muteHttpExceptions:true});
+  const body=JSON.parse(result.getContentText());
+  if(body.ok!==false)throw Error('관리자 인증 거부 검증 실패');
+  const endpoint=UrlFetchApp.fetch(PHOTO_DB_URL_+'/functions/v1/order-photo-drive',{method:'post',contentType:'application/json',payload:'{}',muteHttpExceptions:true});
+  if(endpoint.getResponseCode()!==401)throw Error('주문 서버 인증 거부 검증 실패');
+  console.log('외부 연결 주소: 미인증 요청 차단 검증 통과');
+  console.log('검증용 사진·폴더는 휴지통으로 정리 완료. 운영 주문·재고·사진 메타데이터 변경 없음.');
 }

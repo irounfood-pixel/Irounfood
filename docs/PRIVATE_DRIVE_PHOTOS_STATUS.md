@@ -1,22 +1,42 @@
-# Private Drive order photos — prepared, not enabled
+# Private Google Drive order photos
 
-Apps Script project: https://script.google.com/home/projects/1iJ5LD6VowKBEv9GkkwTdXYD5UL7pl7wWbON8KU3mhF8Fgqely05pwWuB/edit
+New administrator photo uploads use the owner's private Drive folder. Existing Supabase photos remain in place, and both providers are supported for administrator deletion and Excel downloads. The existing ML portal URL is preserved and can export eligible Drive photos without receiving administrator privileges.
 
-The owner completed Google device verification and explicitly authorized Drive file management and external-service scopes. Both displayed scopes were granted. checkPhotoDriveConnection completed successfully and verified the private folder and server connectivity. Production photo handling is unchanged. No successful webapp deployment exists.
+## Components
 
-Automatic approval review rejected changing the webapp audience from Only me to All users and publishing it, because owner-executed Drive access would become callable at a public endpoint without specific approval for that exposure. Do not retry or bypass that rejection. An owner-only deployment was considered, but it does not provide the direct cross-origin background upload needed by the current external administrator page. The pending deployment was cancelled. Specific user approval for an internet-callable, owner-executed endpoint guarded by the existing administrator RLS is required before that publication. Photos and folders themselves must stay private.
+- Owner Apps Script project: https://script.google.com/home/projects/1iJ5LD6VowKBEv9GkkwTdXYD5UL7pl7wWbON8KU3mhF8Fgqely05pwWuB/edit
+- Photo bridge deployment, version 2: https://script.google.com/macros/s/AKfycbzi85enDr1GuIpCd4AhRdqfsqJs7TWu7ksVb2MlfN3p2DSoWRyCDXl9AfHq1rlN42dE/exec
+- Supabase `order-photo-drive`, version 1: authenticated administrator proxy and scoped ML read adapter.
+- Supabase `partner-photo-export`, version 3: original ML-only manifest checks, plus Drive references.
+- Existing ML Apps Script project, version 10: https://script.google.com/home/projects/1Hrq4ekWBAgh59R4sKLYKeNCeAeGezOUwXfnB2UngXJjSC0Oq8MVVJF0T/edit
+- `scripts/patch_ml_drive_export.cjs` applies only the download changes to the original portal HTML, preserving server-side order handling.
+- `admin-drive-test.html` is a separate verification page; the operational page remains `admin.html`.
 
-The bridge checks each current administrator JWT against the existing orders SELECT RLS policy before accessing Drive. It stores uncompressed bytes under the private order-photo root, adds existing order_photos metadata with storage_path = order UUID + /drive/ + Drive file ID, and supports original download and recoverable trash with metadata failure compensation. It does not use a service-role key or grant file-sharing permissions.
+The user explicitly authorized Google Drive management and external-service scopes, then explicitly authorized an internet-callable, owner-executed bridge guarded by administrator authentication. An earlier automatic review rejection was resolved by the user's subsequent specific approval. No file or folder sharing permissions were opened.
 
-Validation: node --test tests/order_photo_drive.test.cjs — 14 mock tests passed. These cover invalid credentials, non-admin denial, order and folder isolation, image limits/signature, duplicate IDs, metadata failure cleanup, uncertain commit, original-byte download and delete compensation. Live OAuth and the read-only private-folder/server connection check passed. Live upload, cross-origin browser access, and ML Excel are NOT yet verified.
+## Access and storage
 
-## Remaining steps
+Administrator requests first validate the current user through Supabase Auth, then enforce the existing orders SELECT RLS. Apps Script independently checks the same order with that user's token before any Drive operation. The caller cannot choose another project, backend URL or forwarded credential. No service-role key or new persistent secret is sent to the browser or stored in Apps Script.
 
-1. Google authentication, owner confirmation for the two requested scopes, and checkPhotoDriveConnection are complete.
-2. Resolve specific user approval for the internet-callable webapp deployment (blocked by automatic approval review). Do not treat the prior scope approval as approval to publish an owner-executed endpoint.
-3. Deploy a separate bridge webapp (owner execution, authenticated application requests). Its public health response contains no user data; photo operations always enforce Supabase administrator RLS.
-4. Implement and verify admin upload/read/trash adapter and legacy Supabase fallback in a test page before production activation.
-5. Extend the existing private ML portal photo export to resolve /drive/ references using owner-side Drive access only after the current ML order manifest has authorized each photo. Preserve ML-only visibility; never use a global Drive read endpoint for ML users.
-6. Verify original images in admin and ML Excel exports, multi-photo counts, error recovery, existing photos and existing orders/inventory, then enable new-photo uploads only.
+ML access reuses the existing public portal share-link capability, limited to read-only photo export for the one fixed ML sheet. Drive reads must also appear in the current approved-order photo manifest. Caller-provided file IDs cannot authorize access. This capability cannot upload or delete photos.
 
-Do not activate production Drive upload until both download consumers support the new path. Preserve all existing Supabase files.
+Files live under private per-order folders. Existing `order_photos` metadata stores `order UUID/drive/Drive file ID`; no schema migration was needed. Uploads retain original bytes, with the existing 5 MB per-file and 10 files per-selection limits. JPEG and PNG bytes remain unchanged in Excel. WEBP is decoded at native dimensions and encoded as lossless PNG because Excel's image embedding does not support WEBP.
+
+Duplicate request IDs reuse metadata rather than creating duplicate attachments. Failed metadata inserts compensate by trashing unreferenced files; uncertain commits are checked before cleanup. Drive deletion uses recoverable Trash and restores a file if metadata deletion fails.
+
+## Validation
+
+- 34 Node tests: administrator and ML authorization, order/folder isolation, bounds and image signatures, duplicate IDs, original bytes, failure compensation, preserved ML server/order code, and native-size WEBP conversion.
+- Actual administrator and ML source scripts compiled without execution errors.
+- Live owner-side Drive check created a private PNG, read identical bytes, and trashed only its disposable fixture.
+- Live direct bridge invalid-token and unauthenticated proxy requests were rejected.
+- Live database RLS allowed administrator order access and fixture metadata insertion/deletion, and denied a non-administrator access to the order and photo.
+- Live ML browser export traversed the deployed ML page, export manifest, proxy, private Drive bridge and Excel generation. The resulting workbook contained the original 82-byte PNG with SHA-256 `1a16762778aeca6035defcae12e6a2bd168516c165caf8363068605d5e01f552`, exactly matching its source. The workbook's download notification appeared, and its downloaded ZIP media was inspected.
+- Fixture metadata was deleted and its private Drive file/folder were trashed. Existing 4 photos remained. The owner-only fixture helper was removed from the saved source and was never deployed publicly.
+- Existing orders: 48; order items: 82. Before/after hashes were unchanged: orders `d4f99ad7eeb2a6d9ae51e1dcb877329f`, items `b8f963c2ffdbfff2b3e1b25d79b634ec`, inventory `0e491ecbc7fc69beddacfa586700ccb2`.
+
+The administrator browser sign-in attempt returned invalid credentials, so an authenticated upload through that browser screen was not performed. The administrator proxy is covered by mocked Auth/HTTP tests and the live database RLS checks; Drive storage and ML photo-to-Excel were exercised live. This distinction should be retained in future handoffs.
+
+Run local checks with `node --test tests/*.test.*`. Do not re-run the live owner fixture helper without a reason; it creates and then trashes disposable Drive files.
+
+For rollback, restore only the old upload loop if needed. Keep Drive-aware read/delete support for any already-created Drive photos. Do not revert to a Supabase-only downloader while Drive metadata exists.
