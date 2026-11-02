@@ -72,6 +72,9 @@ function setupMLWorkflow(){
   else{$('exportFrom').value=mlRange.from;$('exportTo').value=mlRange.to;}
   updateMLExportSummary();setView('download');
  };
+ for(const [id,days] of [['exportToday',1],['exportWeek',7],['exportMonth',30]])$(id).onclick=()=>{
+  $('exportFrom').value=shiftDate(today(),1-days);$('exportTo').value=today();updateMLExportSummary();
+ };
  for(const id of ['exportFrom','exportTo'])$(id).onchange=updateMLExportSummary;
  chooseMLRange(today(),today());
 }

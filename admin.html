@@ -1115,4 +1115,25 @@ async function saveMLPartnerRow(){
 </script>
 <script src="scripts/order_documents.js"></script>
 
+<dialog id="exitPageDialog" aria-labelledby="exitPageTitle" style="border:1px solid #dfe7e1;border-radius:16px;padding:24px;max-width:90vw">
+<h2 id="exitPageTitle" style="margin-top:0">페이지에서 나가시겠습니까?</h2>
+<div class="toolbar" style="justify-content:flex-end"><button id="exitPageCancel" class="btn secondary" autofocus>취소</button><button id="exitPageLeave" class="btn primary">나가기</button></div>
+</dialog>
+<script src="scripts/page_back_guard.js?v=20261102"></script>
+<script>
+let exitPagePromise=null;
+function confirmExitPage(){
+ if(exitPagePromise)return exitPagePromise;
+ const dialog=document.getElementById('exitPageDialog');
+ exitPagePromise=new Promise(resolve=>{
+  const finish=value=>{dialog.close();exitPagePromise=null;resolve(value);};
+  document.getElementById('exitPageCancel').onclick=()=>finish(false);
+  document.getElementById('exitPageLeave').onclick=()=>finish(true);
+  dialog.oncancel=e=>{e.preventDefault();finish(false);};
+  dialog.showModal();
+ });return exitPagePromise;
+}
+IrounBackGuard.install({isHome:()=>state.page==='dashboard',goHome:()=>route('dashboard'),confirmExit:confirmExitPage,
+ closeOverlay:()=>{if(!$('modal').classList.contains('hidden')){closeModal();return true;}return false;}});
+</script>
 </body></html>
