@@ -105,7 +105,7 @@
 </div>
 <div id="modal" class="modal hidden"><div class="modalbox" id="modalBox"></div></div>
 <div id="toast" class="toast hidden"></div>
-<script src="./scripts/order_photo_drive.js?v=20261101"></script>
+<script src="./scripts/order_photo_drive.js?v=20261102-small-v2"></script>
 <script>
 const SUPABASE_URL='https://iqopdxrnkmpdivzndkxq.supabase.co';
 const SUPABASE_KEY='sb_publishable_8jMegFjVcyhp1SIRZHosAQ_fVoxo8Nr';
@@ -268,7 +268,7 @@ function productOptions(onlyActive=true){return (onlyActive?activeProducts():sta
 function itemOptions(){return state.items.map(i=>`<option value="${esc(i.id)}">${esc(i.name)} (${fmt(i.current_qty)} ${esc(i.unit||'')})</option>`).join('')}
 function renderOrderForm(){
  $('page').innerHTML=`<div class="top"><div><h1>주문등록</h1><div class="muted">기관 주문이나 관리자가 대신 접수하는 고객 주문을 등록합니다.</div></div></div>
- <div class="panel"><div class="formgrid3"><div class="field"><label>주문일</label><input id="o_date" type="date" value="${koreaDay()}"></div><div class="field"><label>기관/고객명 *</label><input id="o_customer" placeholder="예: ○○초등학교 / 홍길동"></div><div class="field"><label>담당자</label><input id="o_manager" placeholder="담당자"></div><div class="field"><label>연락처</label><input id="o_contact" placeholder="010-0000-0000"></div><div class="field"><label>배송일 *</label><input id="o_ship" type="date"></div><div class="field"><label>주문경로</label><select id="o_source"><option>기관주문</option><option>온라인주문</option><option>기타</option></select></div><div class="field"><label>배송지 *</label><input id="o_address" placeholder="주소"></div><div class="field"><label>수령방법</label><select id="o_method"><option>택배</option><option>방문수령</option></select></div><div class="field"><label>요청사항</label><input id="o_note" placeholder="요청사항"></div></div>
+ <div class="panel"><div class="formgrid3"><div class="field"><label>주문일</label><input id="o_date" type="date" value="${koreaDay()}"></div><div class="field"><label>기관/고객명 *</label><input id="o_customer" placeholder="예: ○○초등학교 / 홍길동"></div><div class="field"><label>담당자</label><input id="o_manager" placeholder="담당자"></div><div class="field"><label>연락처</label><input id="o_contact" placeholder="010-0000-0000"></div><div class="field"><label>배송일 *</label><input id="o_ship" type="date"></div><div class="field"><label>주문경로</label><select id="o_source"><option>기관주문</option><option>온라인주문</option><option>기타</option></select></div><div class="field"><label>배송지 *</label><input id="o_address" placeholder="주소"></div><div class="field"><label>수령방법</label><select id="o_method"><option selected>방문수령</option><option>택배</option></select></div><div class="field"><label>요청사항</label><input id="o_note" placeholder="요청사항"></div></div>
  <div style="margin-top:18px"><div class="between"><h2 style="margin:0">상품</h2><button class="btn secondary" onclick="addOrderLine()">+ 상품 추가</button></div><div id="olines"></div></div>
  <div style="display:flex;justify-content:flex-end;margin-top:16px"><button class="btn primary" onclick="saveOrder()">주문 저장</button></div></div>`;
  addOrderLine();
@@ -411,8 +411,6 @@ async function saveEditedOrder(){
 
 function openOrder(id){const o=state.orders.find(x=>x.id===id);if(!o)return;openModal(`<div class="between"><h2 style="margin:0">주문 ${esc(o.order_no)}</h2><button class="btn light" onclick="closeModal()">닫기</button></div><div class="panel" style="margin-top:14px"><div class="formgrid"><div><b>고객/기관</b><div>${esc(o.customer_name||'')}</div></div><div><b>연락처</b><div>${esc(o.contact||'')}</div></div><div><b>배송일</b><div>${esc(o.ship_date||'')}</div></div><div><b>배송지</b><div>${esc(o.address||'주소 정보 없음')}</div></div><div><b>주문경로</b><div>${esc(o.order_source||'')}</div></div><div><b>요청사항</b><div>${esc(o.note||'')}</div></div></div><div style="margin-top:16px"><b>상품</b>${(o.order_items||[]).map(i=>`<div style="padding:8px 0;border-bottom:1px solid var(--line)">${esc(i.product_name_snapshot||i.kit_name)} × ${fmt(i.quantity)}</div>`).join('')}</div><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px"><button type="button" class="btn light" onclick="openOrderDocumentChooser('${o.id}')">명세표 출력</button> ${canEditOrder(o)?`<button class="btn secondary" onclick="openEditOrder('${o.id}')">주문 수정</button>`:''}${o.order_status!=='출고완료'&&o.order_status!=='취소'?`<button class="btn primary" onclick="shipOrder('${o.id}')">출고완료 처리</button>`:''}${o.order_status!=='출고완료'&&o.order_status!=='취소'?`<button class="btn danger" onclick="cancelOrder('${o.id}')">주문 취소</button>`:''}</div></div>`)}
 const ORDER_PHOTO_BUCKET='iroun-order-photos';
-const driveUploadRequestIds=new WeakMap();
-const PHOTO_LIMIT=5242880;
 const photoBusy=new Set();
 async function loadOrderPhotos(orderId){
  const panel=$('orderPhotos');
@@ -424,40 +422,73 @@ async function loadOrderPhotos(orderId){
  if(error){panel.textContent='사진 조회 실패: '+error.message;return;}
  if(!data?.length){panel.innerHTML='<div class="muted">첨부사진 0장</div>';return;}
  panel.innerHTML='<div class="muted" style="margin-bottom:4px">첨부사진 '+data.length+'장</div>'
-  +data.map(photo=>'<div class="order-photo-file">'
-   +'<span class="mini photo-name" title="'+esc(photo.original_name)+'">'+esc(photo.original_name)+'</span>'
+  +data.slice().sort(IrounPhotoDrive.comparePhotos).map(photo=>'<div class="order-photo-file">'
+   +'<span class="mini photo-name" title="'+esc(IrounPhotoDrive.displayName(photo.original_name))+'">'+esc(IrounPhotoDrive.displayName(photo.original_name))+'</span>'
    +'<button type="button" class="btn light" data-photo-id="'+photo.id+'" data-order-id="'+orderId+'" onclick="removeOrderPhoto(this.dataset.photoId,this.dataset.orderId)">삭제</button>'
    +'</div>').join('');
 }
 
+const orderPhotoQueues=new Map();
+let activePhotoOrder=null;
+window.addEventListener('beforeunload',e=>{if(photoBusy.size){e.preventDefault();e.returnValue='';}});
+function queueOrderPhotos(orderId){
+ if(photoBusy.has(orderId))return;
+ const input=$('orderPhotoInput'),files=Array.from(input.files||[]);
+ if(!files.length)return;
+ if(files.length>30){input.value='';return toast('한 번에 최대 30장까지 선택해주세요.');}
+ if(files.some(f=>!['image/jpeg','image/png','image/webp'].includes(f.type)||!f.size)){input.value='';return toast('JPG·PNG·WEBP 사진을 선택해주세요.');}
+ const old=orderPhotoQueues.get(orderId);
+ if(old?.items.some(x=>x.status!=='saved')){input.value='';return toast('선택된 사진을 먼저 저장하거나 선택 취소해주세요.');}
+ old?.items.forEach(x=>URL.revokeObjectURL(x.url));
+ files.sort((a,b)=>a.name.localeCompare(b.name,'ko',{numeric:true}));
+ orderPhotoQueues.set(orderId,{stamp:Date.now(),started:false,items:files.map(file=>({file,id:crypto.randomUUID(),url:URL.createObjectURL(file),status:'pending',error:''}))});
+ input.value='';renderPhotoQueue(orderId);
+}
+function moveQueuedPhoto(orderId,index,step){
+ const q=orderPhotoQueues.get(orderId);if(!q||q.started||photoBusy.has(orderId))return;
+ const next=index+step;if(next<0||next>=q.items.length)return;
+ [q.items[index],q.items[next]]=[q.items[next],q.items[index]];renderPhotoQueue(orderId);
+}
+function clearPhotoQueue(orderId){
+ if(photoBusy.has(orderId))return;
+ orderPhotoQueues.get(orderId)?.items.forEach(x=>URL.revokeObjectURL(x.url));
+ orderPhotoQueues.delete(orderId);renderPhotoQueue(orderId);
+}
+function renderPhotoQueue(orderId){
+ if(activePhotoOrder!==orderId||!$('photoQueue'))return;
+ const q=orderPhotoQueues.get(orderId),busy=photoBusy.has(orderId),items=q?.items||[],saved=items.filter(x=>x.status==='saved').length;
+ $('orderPhotoInput').disabled=busy||items.some(x=>x.status!=='saved');
+ const b=$('orderPhotoUpload');b.disabled=busy||!items.length||saved===items.length;
+ b.textContent=busy?'저장 중 '+saved+'/'+items.length:items.some(x=>x.status==='error')?'실패한 사진 다시 저장':'사진 올리기';
+ $('photoProgress').textContent=items.length?(busy?'사진 '+saved+'/'+items.length+'장 저장 중 · 창을 닫아도 업로드는 계속됩니다. 페이지를 나가지는 마세요.':saved===items.length?'사진 '+saved+'장 저장 완료':'선택 '+items.length+'장 · 파일명 순서입니다. 송장 → 내부·외부 순서인지 확인해주세요.'):'사진을 여러 장 선택하면 자동으로 용량을 줄여 저장합니다.';
+ $('photoQueue').innerHTML=items.map((x,i)=>'<div class="order-photo-item"><img src="'+x.url+'" alt="선택 사진 '+(i+1)+'"><div class="mini">'+(i+1)+'. '+esc(IrounPhotoDrive.displayName(x.file.name))+'</div><div class="mini">'+esc(({pending:'대기',processing:'용량 조정·저장 중',saved:'저장 완료',error:'실패: '+x.error})[x.status])+'</div>'+(!q.started?'<button type="button" onclick="moveQueuedPhoto(\''+orderId+'\','+i+',-1)" '+(i===0?'disabled':'')+' aria-label="사진 '+(i+1)+' 앞으로">←</button> <button type="button" onclick="moveQueuedPhoto(\''+orderId+'\','+i+',1)" '+(i===items.length-1?'disabled':'')+' aria-label="사진 '+(i+1)+' 뒤로">→</button>':'')+'</div>').join('');
+ $('photoClear').disabled=busy||!items.length;
+}
 async function uploadOrderPhotos(orderId){
- const order=state.orders.find(x=>x.id===orderId);
- const input=$('orderPhotoInput'),button=$('orderPhotoUpload');
- if(!order||!input||!button||photoBusy.has(orderId))return;
- const files=Array.from(input.files||[]);
- if(!files.length)return toast('사진을 선택해주세요.');
- if(files.length>10)return toast('한 번에 최대 10장까지 업로드할 수 있습니다.');
- const validTypes={'image/jpeg':'jpg','image/png':'png','image/webp':'webp'};
- for(const file of files){
-  if(!validTypes[file.type]||file.size<=0||file.size>PHOTO_LIMIT)return toast('JPG·PNG·WEBP, 파일당 5MB 이하만 업로드할 수 있습니다.');
- }
- photoBusy.add(orderId);input.disabled=true;button.disabled=true;button.textContent='업로드 중';
- let completed=0;
- try{
-  for(const file of files){
-   let photoId=driveUploadRequestIds.get(file);
-   if(!photoId){photoId=crypto.randomUUID();driveUploadRequestIds.set(file,photoId);}
-   await IrounPhotoDrive.upload(db,orderId,file,photoId);
-   completed++;
+ const order=state.orders.find(x=>x.id===orderId),q=orderPhotoQueues.get(orderId);
+ if(!order||!q||photoBusy.has(orderId))return;
+ q.started=true;photoBusy.add(orderId);renderPhotoQueue(orderId);
+ const todo=q.items.map((item,index)=>({item,index})).filter(x=>x.item.status!=='saved');let cursor=0;
+ async function worker(){
+  while(cursor<todo.length){const {item,index}=todo[cursor++];item.status='processing';renderPhotoQueue(orderId);
+   try{
+    if(!item.prepared){const small=await IrounPhotoDrive.preparePhoto(item.file);const name='orderphoto_'+q.stamp+'_'+String(index).padStart(3,'0')+'_'+small.name;
+     item.prepared=new File([small],name.slice(0,250),{type:small.type,lastModified:item.file.lastModified});}
+    await IrounPhotoDrive.upload(db,orderId,item.prepared,item.id);item.status='saved';item.prepared=null;
+   }catch(e){item.status='error';item.error=e.message||String(e);}
+   renderPhotoQueue(orderId);
   }
-  toast('주문 '+order.order_no+' 사진 '+completed+'장 등록 완료');
- }catch(e){toast('사진 업로드 오류 ('+completed+'장 완료): '+(e.message||e))}
+ }
+ try{await Promise.all([worker(),worker()]);}
  finally{
-  photoBusy.delete(orderId);input.disabled=false;button.disabled=false;button.textContent='사진 올리기';if(completed===files.length)input.value='';
-  await loadOrderPhotos(orderId);
+  photoBusy.delete(orderId);renderPhotoQueue(orderId);
+  const saved=q.items.filter(x=>x.status==='saved').length;
+  toast('주문 '+order.order_no+' 사진 '+saved+'/'+q.items.length+'장 저장'+(saved===q.items.length?' 완료':' · 실패한 사진만 다시 저장해주세요.'));
+  if(activePhotoOrder===orderId)await loadOrderPhotos(orderId);
   if(['parcel','mlparcel'].includes(state.page))void refreshParcelPhotoCounts();
  }
 }
+
 async function removeOrderPhoto(photoId,orderId){
  if(!confirm('선택한 주문 사진을 삭제할까요?'))return;
  const {data:photo,error:readError}=await db.from('order_photos').select('id,order_id,storage_path').eq('id',photoId).eq('order_id',orderId).single();
@@ -834,12 +865,14 @@ async function refreshParcelPhotoCounts(orders=photoExportOrders()){
 function openOrderPhotoManager(id){
  const order=state.orders.find(o=>o.id===id);
  if(!order)return toast('주문을 찾을 수 없습니다.');
+ activePhotoOrder=id;
  openModal('<div class="between"><div><h2 style="margin:0">주문 '+esc(order.order_no)+' 사진 첨부</h2><div class="muted">송장번호와 관계없이 사진을 등록할 수 있습니다.</div></div><button class="btn light" onclick="closeModal()">닫기</button></div>'
-  +'<div class="panel" style="margin-top:14px"><div class="muted">JPG·PNG·WEBP · 한 장 최대 5MB · 한 번에 최대 10장 · 관리자 전용</div>'
-  +'<div class="toolbar" style="margin-top:10px"><input id="orderPhotoInput" type="file" accept="image/jpeg,image/png,image/webp" multiple aria-label="주문 사진 선택">'
+  +'<div class="panel" style="margin-top:14px"><div class="muted">JPG·PNG·WEBP · 최대 30장 · 자동 저용량 저장 · 휴대폰 원본 유지</div>'
+  +'<div class="toolbar" style="margin-top:10px"><input id="orderPhotoInput" type="file" accept="image/jpeg,image/png,image/webp" multiple onchange="queueOrderPhotos(this.dataset.id)" data-id="'+id+'" aria-label="주문 사진 선택">'
   +'<button class="btn secondary" id="orderPhotoUpload" data-id="'+id+'" onclick="uploadOrderPhotos(this.dataset.id)">사진 올리기</button></div>'
+  +'<p id="photoProgress" class="mini" role="status"></p><div id="photoQueue" class="order-photo-grid"></div><button type="button" class="btn light" id="photoClear" data-id="'+id+'" onclick="clearPhotoQueue(this.dataset.id)">선택 취소</button>'
   +'<div id="orderPhotos" style="margin-top:12px">사진 목록을 불러오는 중입니다.</div></div>');
- loadOrderPhotos(id);
+ renderPhotoQueue(id);loadOrderPhotos(id);
 }
 
 let photoExportBusy=false;
@@ -883,7 +916,7 @@ async function loadOrderPhotosForExcel(orders){
    if(!data||data.length<500)break;
   }
  }
- return result;
+ return result.sort(IrounPhotoDrive.comparePhotos);
 }
 async function photoBlobToExcelImage(blob){
  const decoded=await createImageBitmap(blob);
@@ -1083,5 +1116,3 @@ async function saveMLPartnerRow(){
 <script src="scripts/order_documents.js"></script>
 
 </body></html>
-
-

@@ -1,0 +1,280 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><base target="_top"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ML 주문 입력</title><style>
+:root{--green:#285944;--ink:#213c31;--line:#dde5df;--muted:#5d7166}*{box-sizing:border-box}body{margin:0;background:#f5f7f2;color:var(--ink);font:16px/1.5 system-ui,-apple-system,sans-serif}header,main{max-width:1040px;margin:auto;padding:24px 20px}header{padding-bottom:12px}small,.muted{color:var(--muted)}h1{font-size:28px;letter-spacing:-1px;margin:4px 0}h2{font-size:21px;margin:0 0 16px}p{margin:8px 0 16px}.badge{font-size:13px;padding:4px 10px;background:#e3eddf;border-radius:16px;color:var(--green)}nav{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:12px 0 22px}button,.file{min-height:46px;border:1px solid var(--line);border-radius:9px;padding:11px 14px;font:inherit;cursor:pointer;background:white;color:var(--green)}button:disabled{opacity:.5;cursor:wait}nav button{padding:10px 4px;font-size:14px;font-weight:650}nav button[aria-selected=true],.primary{background:var(--green);color:white;border-color:var(--green)}section{background:white;border:1px solid var(--line);border-radius:16px;padding:22px}section[hidden]{display:none}.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.row h2{margin-right:auto}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.wide{grid-column:1/-1}label{display:block;font-weight:600;font-size:14px}input,select,textarea{display:block;width:100%;font:inherit;border:1px solid #bacbbf;border-radius:8px;background:white;padding:12px;margin-top:6px;color:var(--ink);min-height:48px}textarea{min-height:86px;resize:vertical}input:focus,select:focus,textarea:focus,button:focus-visible{outline:3px solid #b2d6bc;outline-offset:2px}.status{padding:12px 14px;border-radius:9px;background:#f0f5ee;margin:16px 0;white-space:pre-wrap;overflow-wrap:anywhere}.status.error{background:#fff0ee;color:#a53220}.cards{display:grid;gap:12px;margin-top:18px}.card{padding:16px;background:#fafbf8;border:1px solid var(--line);border-radius:10px}.card strong{display:block}.card p{margin:5px 0;font-size:14px;overflow-wrap:anywhere}.meta{display:flex;gap:8px;flex-wrap:wrap;font-size:13px;color:var(--muted)}details{margin-top:10px;font-size:14px}details p{padding:4px 0}.scroll{overflow:auto;max-height:270px;margin-top:12px}table{border-collapse:collapse;font-size:13px;min-width:600px;width:100%}td,th{border:1px solid var(--line);padding:8px;text-align:left}th{background:#edf3ea}#notice{margin-top:0}.downloads{display:grid;gap:12px}.downloads button{text-align:left;font-weight:600}.foot{font-size:13px;color:var(--muted);padding:16px 4px}.file{display:block;position:relative;padding:16px;border:2px dashed #9db9a4;font-weight:600;text-align:center}.file input{font-size:14px;border:0;padding:4px;background:transparent}.hint{font-size:13px;color:var(--muted)}.required{font-size:13px;color:var(--green);font-weight:normal}#search{max-width:360px;margin:0}#saveState{margin-bottom:12px}@media(max-width:600px){header,main{padding:18px 14px}section{padding:18px 15px}h1{font-size:25px}.grid{gap:14px}.grid>.wide{grid-column:1/-1}nav{position:sticky;top:0;background:#f5f7f2;padding:8px 0;z-index:2;margin-top:0}nav button{font-size:13px}.row>button{font-size:14px}#search{max-width:none;width:100%}}
+.quick-links{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.quick-links button{padding:10px 4px;font-size:14px}.product-lines{white-space:pre-line}.ml-photo-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.ml-photo-grid img{width:100%;height:190px;object-fit:contain}.photo-open{width:100%;padding:2px}.ml-edit-line{padding:10px 0;border-bottom:1px solid #dde5df}#rangePicker{margin-top:12px;padding:12px;background:#f3f6f0}dialog{border:1px solid #ccc;border-radius:12px;max-width:94vw;max-height:94vh}dialog::backdrop{background:#0009}#photoLarge{display:block;max-width:85vw;max-height:75vh;object-fit:contain}summary{cursor:pointer;padding:8px 0}#photoDialog .row{justify-content:space-between}@media(max-width:600px){.quick-links{grid-template-columns:1fr 1fr}.ml-photo-grid img{height:140px}}
+</style></head><body><header><small>이로운과자점 · 거래처 전용</small><h1>ML 주문 입력 <span class="badge">운영 연결</span></h1><p class="muted">주문 확인부터 엑셀 업로드까지, 이 화면에서 이용하세요.</p></header><main>
+<nav aria-label="주문 기능"><button type="button" data-view="orders" aria-selected="true">내용 보기</button><button type="button" data-view="entry" aria-selected="false">직접 입력</button><button type="button" data-view="upload" aria-selected="false">엑셀 업로드</button><button type="button" data-view="download" aria-selected="false">다운로드</button></nav>
+<div id="notice" class="status" role="status" aria-live="polite">주문 정보를 불러오는 중입니다.</div>
+<section id="orders"><div class="row"><h2>발송 주문 <small id="count"></small></h2><button type="button" id="refresh">새로고침</button></div>
+<div class="quick-links"><button id="quickToday" type="button">오늘</button><button id="quickYesterday" type="button">어제</button><button id="quickWeek" type="button">최근 7일</button><button id="quickDates" type="button">날짜 선택 📅</button></div>
+<div id="rangePicker" hidden><div class="grid"><label>하루 선택<input id="rangeDay" type="date"></label></div><div class="row"><label>발송 시작일<input id="rangeFrom" type="date"></label><label>발송 종료일<input id="rangeTo" type="date"></label><button id="applyRange" type="button">기간 보기</button></div></div>
+<div class="row" style="margin-top:16px"><b id="rangeCaption"></b><button id="listDownload" type="button">이 기간 다운로드</button></div>
+<p class="hint">발송일 기준입니다. 실제 발송 여부는 출고상태를 확인해주세요.</p>
+<label for="search" class="muted">전체 기간 주문 검색</label><input id="search" type="search" placeholder="수령인 · 상품 · 송장번호 검색"><div id="cards" class="cards"></div><button id="more" type="button" hidden>더 보기</button></section>
+<section id="entry" hidden><h2 id="entryTitle">직접 입력</h2><p>필수 정보를 완성하고 입력칸에서 나오면 자동 저장됩니다. 저장 후 수정하면 같은 주문 행에 반영됩니다.</p><form id="orderForm" autocomplete="off"><div class="grid"><label>주문일 <span class="required">필수</span><input type="date" name="order_date" required></label><label>발송일 <span class="required">필수</span><input type="date" name="ship_date" required></label><label>상품명 <span class="required">필수</span><select name="product" required><option value="">상품을 선택하세요</option></select></label><label>수량 <span class="required">필수</span><input name="quantity" type="number" min="1" max="1000" step="1" inputmode="numeric" required></label><label>수령인 <span class="required">필수</span><input name="recipient" maxlength="100" required></label><label>연락처 <span class="required">필수</span><input name="contact" type="tel" maxlength="100" required></label><label class="wide">배송지 <span class="required">필수</span><textarea name="address" maxlength="1000" required></textarea></label><label class="wide">요청사항<textarea name="note" maxlength="2000"></textarea></label></div><div id="saveState" class="status" role="status">필수 정보를 입력해 주세요.</div><button id="nextOrder" type="button" disabled>다음 주문 입력</button><p class="hint">다른 주문을 입력할 때는 반드시 ‘다음 주문 입력’을 누르세요. 승인 후에도 수정·삭제할 수 있습니다.</p></form></section>
+<section id="upload" hidden><h2>엑셀로 내용 추가</h2><p>빈 양식에 주문을 작성한 뒤 선택하세요. 기존 주문은 유지하며 새 주문만 추가합니다.</p><button type="button" class="blank">빈 양식 받기 (.xlsx)</button><label class="file">엑셀 파일 선택<input id="file" type="file" accept=".xlsx,.xls"></label><p class="hint">한 번에 최대 500행 · 표준 14열 양식 또는 주문내역 15열 파일<br>송장번호·박스 수·사진 수는 업로드로 수정되지 않습니다.</p><div id="uploadState" class="status" role="status">파일을 선택하면 내용 검증과 미리보기가 표시됩니다.</div><div id="preview" class="scroll"></div><button id="append" class="primary" type="button" disabled>확인한 주문 추가</button><p class="hint">주문일·발송일·상품·수량·배송정보·요청사항이 모두 같은 행은 중복으로 건너뜁니다. 같은 내용의 재주문은 주문일 또는 요청사항에 구분을 남겨 주세요.</p></section>
+<section id="download" hidden><h2>엑셀 다운로드</h2><p>발송일 기준 다운로드 기간을 확인해 주세요.</p><div class="row"><label>발송 시작일<input id="exportFrom" type="date" required></label><label>발송 종료일<input id="exportTo" type="date" required></label></div>
+<p id="exportSummary" class="status" role="status"></p><p class="hint">선택 기간 중 송장번호 또는 사진이 있는 주문만 포함합니다.</p><div class="downloads"><button id="downloadFast" type="button">사진 없이 · 빠른 다운로드</button><button id="downloadCompact" type="button">사진 포함 · 주문별 한 시트</button><button type="button" class="blank">빈 주문 양식 받기 (.xlsx)</button></div><p class="hint">송장번호·박스 수량·사진을 한 시트에서 확인합니다. 사진은 등록 순서대로 2장씩 배치됩니다.</p></section>
+<dialog id="photoDialog"><div class="row"><b id="photoTitle">사진</b><button type="button" onclick="document.getElementById('photoDialog').close()">닫기</button></div><p id="photoLoadStatus" class="hint"></p><img id="photoLarge" alt="주문 포장 사진"></dialog>
+<p class="foot">완성된 주문은 최대 5분 안에 등록 상태로 연동됩니다. 관리자 승인 후 정식 주문접수로 등록됩니다.</p></main><script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script><script>
+'use strict';function newDraftId(){if(crypto.randomUUID)return crypto.randomUUID();const b=crypto.getRandomValues(new Uint8Array(16));b[6]=(b[6]&15)|64;b[8]=(b[8]&63)|128;const x=[...b].map(v=>v.toString(16).padStart(2,'0')).join('');return x.slice(0,8)+'-'+x.slice(8,12)+'-'+x.slice(12,16)+'-'+x.slice(16,20)+'-'+x.slice(20);}
+const $=id=>document.getElementById(id),form=$('orderForm');let data={headers:[],products:[],rows:[]},parsed=[],shown=25,draftId=newDraftId(),savedSignature='',timer=null,saving=false,queued=false,uploading=false,editingSourceRow=null,editingExpected=null;
+const call=(name,...args)=>new Promise((resolve,reject)=>google.script.run.withSuccessHandler(resolve).withFailureHandler(e=>reject(Error(e.message||'연결을 확인해 주세요.')))[name](...args));
+const show=(id,text,error=false)=>{const el=$(id);el.textContent=text;el.classList.toggle('error',error);};
+function setView(view){document.querySelectorAll('nav button').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.view===view)));['orders','entry','upload','download'].forEach(v=>$(v).hidden=v!==view);}
+document.querySelectorAll('nav button').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));
+async function refresh(){try{$('refresh').disabled=true;const d=await call('getMLPortalData');data=d;const select=form.elements.product,chosen=select.value;select.replaceChildren(new Option('상품을 선택하세요',''));d.products.forEach(p=>select.add(new Option(p,p)));select.value=chosen;render();show('notice','ML 주문내역을 불러왔습니다. 입력·업로드 내용은 같은 주문 시트에 저장됩니다.');}catch(e){show('notice',e.message,true);}finally{$('refresh').disabled=false;}}
+$('refresh').onclick=refresh;$('search').oninput=()=>{shown=25;render();};$('more').onclick=()=>{shown+=25;render();};
+function inputRow(){return ['order_date','ship_date','product','quantity','recipient','contact','address','note'].map(n=>form.elements[n].value.trim());}
+function valid(){return form.checkValidity()&&inputRow().slice(0,7).every(Boolean);}
+async function saveDraft(){if(saving){queued=true;return;}if(!valid()){show('saveState','필수 정보를 모두 입력해 주세요.');return;}const row=inputRow(),signature=JSON.stringify(row);if(signature===savedSignature)return;saving=true;$('nextOrder').disabled=true;show('saveState','자동 저장 중…');try{const result=editingSourceRow?await call('updateMLPortalOrder',editingSourceRow,editingExpected,row):await call('saveMLPortalDraft',draftId,row);if(!result.ok)throw Error(result.errors.join('\n'));savedSignature=signature;if(editingSourceRow)editingExpected=row.slice();show('saveState',result.duplicate?'같은 내용의 주문이 이미 있어 추가하지 않았습니다.':'자동 저장 완료 · 관리자 승인대기로 연동됩니다.');$('nextOrder').disabled=false;refresh();}catch(e){show('saveState',e.message,true);}finally{saving=false;if(queued){queued=false;saveDraft();}}}
+form.addEventListener('submit',e=>e.preventDefault());form.addEventListener('input',()=>{clearTimeout(timer);$('nextOrder').disabled=true;});form.addEventListener('focusout',()=>{clearTimeout(timer);if(valid())timer=setTimeout(saveDraft,1600);});form.addEventListener('change',()=>{clearTimeout(timer);if(valid())timer=setTimeout(saveDraft,1600);});
+$('nextOrder').onclick=()=>{if(saving||JSON.stringify(inputRow())!==savedSignature)return;clearTimeout(timer);draftId=newDraftId();savedSignature='';editingSourceRow=null;editingExpected=null;$('entryTitle').textContent='직접 입력';form.reset();form.elements.order_date.value=today();$('nextOrder').disabled=true;show('saveState','다음 주문의 필수 정보를 입력해 주세요.');};
+function beginEdit(sourceRow){const i=(data.sourceRows||[]).indexOf(sourceRow);if(i<0||(data.lockedSourceRows||[]).includes(sourceRow))return show('notice','수정할 수 없는 주문입니다. 새로고침해 주세요.',true);const row=data.rows[i];editingSourceRow=sourceRow;editingExpected=row.slice(0,8).map(v=>String(v??''));const names=['order_date','ship_date','product','quantity','recipient','contact','address','note'];names.forEach((n,j)=>{let v=String(row[j]??'');if(j<2){const m=v.match(/^(\d{4})[.\/-]\s*(\d{1,2})[.\/-]\s*(\d{1,2})\.?$/);if(m)v=m[1]+'-'+m[2].padStart(2,'0')+'-'+m[3].padStart(2,'0');}form.elements[n].value=v;});savedSignature=JSON.stringify(inputRow());$('entryTitle').textContent='입력 내용 수정';show('saveState','값을 바꾸고 입력칸에서 나오면 이 주문 행에 자동 저장됩니다.');$('nextOrder').disabled=false;setView('entry');}
+function today(){return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());}form.elements.order_date.value=today();
+function saveXlsx(rows,name){if(typeof XLSX==='undefined')throw Error('엑셀 도구를 불러오지 못했습니다. 브라우저를 새로고침해 주세요.');const wb=XLSX.utils.book_new(),ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=rows[0].map((_,i)=>({wch:i===6?45:20}));XLSX.utils.book_append_sheet(wb,ws,'주문입력');XLSX.writeFile(wb,name);}
+document.querySelectorAll('.blank').forEach(b=>b.onclick=async()=>{const buttons=document.querySelectorAll('.blank');try{if(!data.headers.length)throw Error('주문 정보를 먼저 불러와 주세요.');buttons.forEach(x=>x.disabled=true);show('notice','날짜 선택이 가능한 빈 주문 양식을 만드는 중…');await downloadBlankTemplate();show('notice','빈 주문 양식 다운로드 완료 · 주문일 자동 입력 · 발송일 90일 목록 선택 또는 직접 입력');}catch(e){show('notice',e.message,true);}finally{buttons.forEach(x=>x.disabled=false);}});
+
+const mlExportButtons=['downloadFast','downloadCompact'];
+mlExportButtons.forEach((id,i)=>$(id).onclick=()=>runMLExport(i?'compact':'fast'));
+async function compactMLImage(image){
+ const blob=await (await fetch(image.base64)).blob(),bitmap=await createImageBitmap(blob);
+ try{const scale=Math.min(1,1000/bitmap.width,1000/bitmap.height),canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(bitmap.width*scale));canvas.height=Math.max(1,Math.round(bitmap.height*scale));const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(bitmap,0,0,canvas.width,canvas.height);return {base64:canvas.toDataURL('image/jpeg',0.75),extension:'jpeg',width:canvas.width,height:canvas.height};}finally{bitmap.close();}
+}
+function preview(rows){$('preview').replaceChildren();const table=document.createElement('table');[data.headers.slice(0,8),...rows].forEach((row,i)=>{const tr=document.createElement('tr');row.forEach(v=>{const td=document.createElement(i?'td':'th');td.textContent=v;tr.appendChild(td);});table.appendChild(tr);});$('preview').appendChild(table);}
+function excelDate(v){if(typeof v==='number'){const d=XLSX.SSF.parse_date_code(v);if(!d)throw Error('엑셀 날짜 값을 확인해 주세요.');return d.y+'-'+String(d.m).padStart(2,'0')+'-'+String(d.d).padStart(2,'0');}return String(v??'');}
+$('file').onchange=async e=>{parsed=[];$('append').disabled=true;$('preview').replaceChildren();const file=e.target.files[0];if(!file)return;try{if(typeof XLSX==='undefined')throw Error('엑셀 도구 로딩 실패입니다. 새로고침해 주세요.');if(file.size>8*1024*1024)throw Error('8MB 이하 파일을 선택하세요.');if(!data.headers.length)throw Error('주문 정보를 먼저 불러와 주세요.');show('uploadState','파일을 읽고 검증하는 중…');const wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:false}),a=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,raw:true,defval:''});if(data.headers.slice(0,14).some((h,i)=>String(a[0]?.[i]??'').trim()!==h))throw Error('표준 14개 열 제목이 다릅니다. 빈 양식을 받아 작성해 주세요.');const rows=a.slice(1).filter(r=>r.slice(1).some(v=>String(v).trim())).map(r=>r.map((v,i)=>i<2?excelDate(v):String(v??'')));const result=await call('validateMLPortalUpload',rows);if(!result.ok)throw Error(result.errors.join('\n'));parsed=rows;preview(result.preview);show('uploadState','추가 가능 '+result.added+'행 · 동일 내용 '+result.skipped+'행 제외\n최대 5개 행 미리보기입니다.');$('append').disabled=result.added===0;}catch(err){parsed=[];show('uploadState',err.message,true);}finally{$('file').value='';}};
+$('append').onclick=async()=>{if(!parsed.length||uploading)return;uploading=true;$('append').disabled=true;$('file').disabled=true;try{const result=await call('appendMLPortalUpload',parsed);if(!result.ok)throw Error(result.errors.join('\n'));show('uploadState','추가 완료 '+result.added+'행 / 동일 내용 '+result.skipped+'행 건너뜀');parsed=[];$('preview').replaceChildren();await refresh();}catch(e){show('uploadState',e.message,true);$('append').disabled=false;}finally{uploading=false;$('file').disabled=false;}};
+window.addEventListener('beforeunload',e=>{if(saving||(valid()&&JSON.stringify(inputRow())!==savedSignature)){e.preventDefault();e.returnValue='';}});
+
+// This is the existing public portal's share-link ID, a read-only ML capability.
+// It is NOT an administrator ingest token or a Supabase service key.
+const ML_PHOTO_LINK_ID='SET_EXISTING_PORTAL_LINK_ID';
+const ML_PHOTO_ENDPOINT='https://iqopdxrnkmpdivzndkxq.supabase.co/functions/v1/partner-photo-export';
+const ML_DRIVE_ENDPOINT='https://iqopdxrnkmpdivzndkxq.supabase.co/functions/v1/order-photo-drive';
+let mlExcelPromise;
+function loadMLExcelEngine(){if(window.ExcelJS?.Workbook)return Promise.resolve(window.ExcelJS);if(!mlExcelPromise)mlExcelPromise=new Promise((resolve,reject)=>{const script=document.createElement('script');script.src='https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';script.onload=()=>window.ExcelJS?.Workbook?resolve(window.ExcelJS):reject(Error('사진 포함 엑셀 도구 로딩 실패입니다.'));script.onerror=()=>reject(Error('엑셀 도구를 내려받지 못했습니다. 인터넷 연결을 확인해 주세요.'));document.head.appendChild(script);}).catch(e=>{mlExcelPromise=null;throw e;});return mlExcelPromise;}
+function downloadMLBytes(bytes,name){const url=URL.createObjectURL(new Blob([bytes],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'})),a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);}
+async function downloadBlankTemplate(){const ExcelJS=await loadMLExcelEngine(),wb=new ExcelJS.Workbook();wb.creator='이로운과자점';const ws=wb.addWorksheet('주문입력');const widths=[15,15,22,8,14,20,40,28,22,14,14,14,14,14];ws.columns=data.headers.slice(0,14).map((h,i)=>({header:h,width:widths[i]}));ws.getRow(1).height=36;ws.getRow(1).eachCell(c=>{c.font={name:'맑은 고딕',size:11,bold:true,color:{argb:'FFFFFFFF'}};c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF285944'}};c.alignment={vertical:'middle',wrapText:true};});for(let r=2;r<=101;r++){ws.getRow(r).height=30;for(let c=1;c<=14;c++){const cell=ws.getCell(r,c);cell.value='';cell.font={name:'맑은 고딕',size:11,color:{argb:'FF213C31'}};cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:r%2===0?'FFF2F6F0':'FFFFFFFF'}};cell.border={bottom:{style:'hair',color:{argb:'FFDDE5DF'}}};cell.alignment={vertical:'middle',wrapText:true};if([3,5,6,7,8,9].includes(c))cell.numFmt='@';}}const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());const parts=today.split('-').map(Number),start=Date.UTC(parts[0],parts[1]-1,parts[2]);const dates=wb.addWorksheet('날짜목록');for(let i=0;i<90;i++)dates.getCell(i+1,1).value=new Date(start+i*86400000).toISOString().slice(0,10);dates.state='veryHidden';wb.definedNames.add("'날짜목록'!$A$1:$A$90",'MLShippingDates');for(let r=2;r<=101;r++){ws.getCell(r,1).value=today;ws.getCell(r,1).numFmt='yyyy-mm-dd';ws.getCell(r,2).numFmt='yyyy-mm-dd';ws.getCell(r,2).dataValidation={type:'list',allowBlank:true,formulae:['MLShippingDates'],showInputMessage:true,promptTitle:'배송일 선택',prompt:'▼에서 날짜를 선택하거나 YYYY-MM-DD 형식으로 직접 입력하세요.',showErrorMessage:false};}ws.views=[{state:'frozen',ySplit:1}];downloadMLBytes(await wb.xlsx.writeBuffer(),'ML_빈주문양식_입력칸100행.xlsx');}
+async function loadMLExportPhotos(filter={}){const response=await fetch(ML_PHOTO_ENDPOINT,{method:'POST',credentials:'omit',headers:{Authorization:'Bearer '+ML_PHOTO_LINK_ID,'Content-Type':'application/json'},body:JSON.stringify(filter),cache:'no-store'});const result=await response.json();if(!response.ok||!result.ok||!Array.isArray(result.photos))throw Error(result.error||'첨부사진 조회 실패입니다.');return result.photos;}
+async function downloadMLExportImage(photo){
+ let blob;
+ if(String(photo.url||'').startsWith('drive:')){
+  const response=await fetch(ML_DRIVE_ENDPOINT,{method:'POST',credentials:'omit',headers:{Authorization:'Bearer '+ML_PHOTO_LINK_ID,'Content-Type':'application/json'},body:JSON.stringify({action:'mlRead',order_id:photo.order_id,photo_id:photo.id}),cache:'no-store'});
+  const data=await response.json();
+  if(!response.ok||!data.ok||!['image/jpeg','image/png','image/webp'].includes(data.content_type))throw Error(data.error||'구글 드라이브 사진을 받지 못했습니다.');
+  blob=new Blob([Uint8Array.from(atob(data.base64),c=>c.charCodeAt(0))],{type:data.content_type});
+ }else{
+  const url=new URL(photo.url);if(url.origin!=='https://iqopdxrnkmpdivzndkxq.supabase.co'||!url.pathname.startsWith('/storage/v1/object/sign/iroun-order-photos/'))throw Error('사진 다운로드 주소를 확인할 수 없습니다.');
+  const response=await fetch(url.href,{credentials:'omit',cache:'no-store'});if(!response.ok)throw Error('첨부사진을 가져오지 못했습니다.');blob=await response.blob();
+ }
+ if(!blob.size||blob.size>50*1024*1024)throw Error('사진 파일 크기를 확인해 주세요.');const signature=new Uint8Array(await blob.slice(0,8).arrayBuffer());const extension=signature[0]===255&&signature[1]===216&&signature[2]===255?'jpeg':signature[0]===137&&signature[1]===80&&signature[2]===78&&signature[3]===71?'png':signature[0]===71&&signature[1]===73&&signature[2]===70?'gif':'';if(!extension&&blob.type!=='image/webp')throw Error('지원하지 않는 사진 형식입니다.');const base64=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(Error('원본 사진을 읽지 못했습니다.'));reader.readAsDataURL(blob);});const decoded=await createImageBitmap(blob);try{return {base64,extension:extension||'webp',width:decoded.width,height:decoded.height};}finally{decoded.close?.();}}
+function appendMLOrderControls(card,sourceRow,r){
+ const i=(data.sourceRows||[]).indexOf(sourceRow),state=data.orderStates?.[i];
+ const label=document.createElement('p');label.className='muted';
+ label.textContent=!state?'동기화 대기':state.order_status==='출고완료'?'출고완료':state.status==='승인'?'승인 · '+(state.order_status||'주문접수'):['등록','승인대기'].includes(state.status)?'등록':state.status;
+ card.appendChild(label);
+ const registered=state&&['등록','승인대기'].includes(state.status);
+ const locked=(data.lockedSourceRows||[]).includes(sourceRow);
+ const approvedEditable=state?.status==='승인'&&['주문접수','준비중'].includes(state.order_status);
+ if(registered||approvedEditable||!state&&!locked){
+  const edit=document.createElement('button');edit.type='button';edit.textContent='입력 내용 수정';edit.onclick=()=>beginEdit(sourceRow);card.appendChild(edit);
+ }
+ if(!state)return;
+ const deletable=registered||approvedEditable||state.status==='반려'||state.status==='승인'&&state.order_status==='취소';
+ if(state.status==='승인'&&!['주문접수','준비중','취소'].includes(state.order_status))return;
+ if(!deletable)return;
+ const action='delete',button=document.createElement('button');button.type='button';
+ button.textContent='삭제';button.style.marginLeft='8px';
+ button.onclick=async()=>{
+  const question=action==='delete'?'이 주문을 삭제할까요? 삭제한 주문은 다시 나타나지 않습니다.':
+   '이 주문의 승인을 취소하고 등록 상태로 되돌릴까요? 같은 정식 주문에 포함된 모든 상품이 함께 돌아갑니다.';
+  if(!window.confirm(question))return;
+  if(saving||valid()&&JSON.stringify(inputRow())!==savedSignature)return show('notice','입력 중인 내용을 먼저 저장해 주세요.',true);
+  button.disabled=true;
+  try{
+   await call('manageMLPortalOrder',state.source_uid,state.updated_at,r.slice(0,8),action);
+   clearTimeout(timer);editingSourceRow=null;editingExpected=null;savedSignature='';form.reset();
+   form.elements.order_date.value=today();draftId=newDraftId();$('entryTitle').textContent='직접 입력';$('nextOrder').disabled=true;
+   await refresh();show('notice',action==='delete'?'주문을 삭제했습니다. 시트 정리는 다음 자동 동기화 때 반영됩니다.':'승인을 취소했습니다. 등록 상태에서 수정하거나 삭제할 수 있습니다.');
+  }catch(e){show('notice',e.message,true);}finally{button.disabled=false;}
+ };
+ card.appendChild(button);
+}
+
+
+// Shared order grouping and date selection for the list and exports.
+const mlBoxNames=['아이스 소','아이스 중','아이스 대','종이 중','종이 대'];
+let mlRange={from:today(),to:today()},mlGroups=[],mlPhotoCache=new Map();
+function dateISO(v){return String(v||'').trim().replace(/^(\d{4})[.\/-]\s*(\d{1,2})[.\/-]\s*(\d{1,2})\.?$/,(_,y,m,d)=>y+'-'+m.padStart(2,'0')+'-'+d.padStart(2,'0'));}
+function shiftDate(day,n){return new Date(Date.parse(day+'T00:00:00Z')+n*86400000).toISOString().slice(0,10);}
+function groupMLOrders(d){
+ const groups=new Map();
+ d.rows.forEach((r,i)=>{const state=d.orderStates?.[i],source=Number(d.sourceRows[i]);
+  const orderId=state?.status==='승인'?state.approved_order_id:null;
+  const key=orderId?'order:'+orderId:'row:'+source;
+  if(!groups.has(key))groups.set(key,{key,orderId,orderNo:String(state?.order_no||''),date:dateISO(r[1]),recipient:r[4],contact:r[5],address:r[6],state,entries:[],photos:[],boxes:r.slice(9,14).map(v=>Number(v)||0),photoCount:Number(r[14])||0});
+  const g=groups.get(key);g.entries.push({row:r,source,state});g.photoCount=Math.max(g.photoCount,Number(r[14])||0);
+ });
+ return [...groups.values()].sort((a,b)=>b.date.localeCompare(a.date)||a.orderNo.localeCompare(b.orderNo,undefined,{numeric:true})||a.entries[0].source-b.entries[0].source);
+}
+function groupTracking(g){return [...new Set(g.entries.map(e=>String(e.row[8]||'').trim()).filter(Boolean))].join(', ');}
+function groupProducts(g){return g.entries.map(e=>e.row[2]+' × '+e.row[3]).join('\n');}
+function groupBoxes(g){return mlBoxNames.map((n,i)=>g.boxes[i]?n+' '+g.boxes[i]+'개':'').filter(Boolean).join(' / ')||'미입력';}
+function groupStatus(g){const s=g.state;return !s?'동기화 대기':s.order_status==='출고완료'?'출고완료':s.order_status==='취소'?'취소':s.status==='승인'?'발송 예정':s.status==='반려'?'반려':'승인 대기';}
+function inMLRange(g,range){return (!range.from||g.date>=range.from)&&(!range.to||g.date<=range.to);}
+function matchesMLSearch(g,query){return !query||[g.orderNo,g.recipient,g.contact,g.address,groupProducts(g),groupTracking(g)].join(' ').toLowerCase().includes(query.toLowerCase());}
+function mlText(parent,tag,text,cls){const el=document.createElement(tag);el.textContent=text;if(cls)el.className=cls;parent.appendChild(el);return el;}
+function render(){
+ mlGroups=groupMLOrders(data);
+ const query=$('search').value.trim(),allSearch=Boolean(query);
+ const groups=mlGroups.filter(g=>(allSearch||inMLRange(g,mlRange))&&matchesMLSearch(g,query));
+ $('count').textContent='('+groups.length+'건)';
+ $('rangeCaption').textContent=allSearch?'전체 기간 검색 결과':mlRange.from===mlRange.to?mlRange.from+' 발송 대상':mlRange.from+' ~ '+mlRange.to+' 발송 대상';
+ for(const [id,from,to] of [['quickToday',today(),today()],['quickYesterday',shiftDate(today(),-1),shiftDate(today(),-1)],['quickWeek',shiftDate(today(),-6),today()]]){
+  const title={quickToday:'오늘',quickYesterday:'어제',quickWeek:'최근 7일'}[id];
+  $(id).textContent=title+' · '+mlGroups.filter(g=>inMLRange(g,{from,to})).length+'건';
+  $(id).classList.toggle('primary',!allSearch&&mlRange.from===from&&mlRange.to===to);
+ }
+ $('cards').replaceChildren();
+ if(!groups.length)mlText($('cards'),'p',allSearch?'검색 결과가 없습니다.':'이 기간에 발송일이 지정된 주문이 없습니다. 다른 날짜를 선택해주세요.','muted');
+ groups.slice(0,shown).forEach(g=>{
+  const card=mlText($('cards'),'article','','card');
+  mlText(card,'strong',g.recipient+(g.orderNo?' · 주문 '+g.orderNo:''));
+  mlText(card,'p','발송일 '+g.date+' · '+groupStatus(g),'meta');
+  mlText(card,'p',groupProducts(g),'product-lines');
+  mlText(card,'p','송장 '+(groupTracking(g)||'미입력')+' · 사진 '+g.photoCount+'장','meta');
+  const detail=document.createElement('details');card.appendChild(detail);
+  mlText(detail,'summary','주문 상세 · 박스 · 사진 보기');
+  mlText(detail,'p','박스: '+groupBoxes(g));mlText(detail,'p',g.address+' / '+g.contact);
+  for(const entry of g.entries){if(entry.row[7])mlText(detail,'p',entry.row[2]+' 요청: '+entry.row[7]);}
+  const pictures=mlText(detail,'div',g.photoCount?'상세를 열면 사진을 불러옵니다.':'첨부사진 없음','ml-pictures');
+  detail.addEventListener('toggle',()=>{if(detail.open&&g.photoCount&&!pictures.dataset.started){pictures.dataset.started='1';void showMLGroupPhotos(g,pictures);}});
+  const actions=document.createElement('details');detail.appendChild(actions);mlText(actions,'summary','입력 내용 수정·삭제');
+  for(const entry of g.entries){const line=mlText(actions,'div','','ml-edit-line');mlText(line,'b',entry.row[2]+' × '+entry.row[3]);appendMLOrderControls(line,entry.source,entry.row);}
+ });
+ $('more').hidden=groups.length<=shown;updateMLExportSummary();
+}
+function chooseMLRange(from,to){
+ if(!from||!to||from>to){show('notice','시작일과 종료일을 확인해주세요.',true);return;}
+ mlRange={from,to};$('search').value='';shown=25;
+ $('rangeFrom').value=from;$('rangeTo').value=to;$('exportFrom').value=from;$('exportTo').value=to;render();
+}
+function updateMLExportSummary(){
+ const from=$('exportFrom').value,to=$('exportTo').value;
+ const groups=groupMLOrders(data).filter(g=>inMLRange(g,{from,to})&&(groupTracking(g)||g.photoCount>0));
+ $('exportSummary').textContent=!from||!to?'발송일 기준 다운로드 기간을 선택해주세요.':from>to?'시작일은 종료일보다 늦을 수 없습니다.':from+' ~ '+to+' · 다운로드 대상 '+groups.length+'건 · 사진 '+groups.reduce((n,g)=>n+g.photoCount,0)+'장';
+}
+function setupMLWorkflow(){
+ $('quickToday').onclick=()=>chooseMLRange(today(),today());
+ $('quickYesterday').onclick=()=>chooseMLRange(shiftDate(today(),-1),shiftDate(today(),-1));
+ $('quickWeek').onclick=()=>chooseMLRange(shiftDate(today(),-6),today());
+ $('quickDates').onclick=()=>{$('rangePicker').hidden=!$('rangePicker').hidden;};
+ $('applyRange').onclick=()=>chooseMLRange($('rangeFrom').value,$('rangeTo').value);
+ $('rangeDay').onchange=()=>{if($('rangeDay').value)chooseMLRange($('rangeDay').value,$('rangeDay').value);};
+ $('listDownload').onclick=()=>{
+  if($('search').value.trim()){$('exportFrom').value='';$('exportTo').value='';}
+  else{$('exportFrom').value=mlRange.from;$('exportTo').value=mlRange.to;}
+  updateMLExportSummary();setView('download');
+ };
+ for(const id of ['exportFrom','exportTo'])$(id).onchange=updateMLExportSummary;
+ chooseMLRange(today(),today());
+}
+function mlPhotoKey(p){const m=String(p.original_name||'').match(/^orderphoto_(\d{13})_(\d{3})_/);return m?m[1]+'_'+m[2]:String(Date.parse(p.created_at)||0).padStart(13,'0')+'_000';}
+function sortMLPhotos(photos){return photos.slice().sort((a,b)=>mlPhotoKey(a).localeCompare(mlPhotoKey(b))||String(a.id).localeCompare(String(b.id)));}
+function matchingGroupPhotos(g,photos){
+ const sources=new Set(g.entries.map(e=>e.source));
+ return sortMLPhotos(photos.filter(p=>g.orderId?p.order_id===g.orderId:p.source_rows?.some(n=>sources.has(Number(n)))));
+}
+async function showMLGroupPhotos(g,panel){
+ panel.textContent='사진 정보를 불러오는 중…';
+ try{
+  if(!g.orderId)throw Error('주문 연동 후 사진을 확인할 수 있습니다. 새로고침해주세요.');
+  const photos=matchingGroupPhotos(g,await loadMLExportPhotos({order_id:g.orderId}));
+  panel.replaceChildren();if(!photos.length){panel.textContent='첨부사진 없음';return;}
+  let cursor=0;
+  async function more(){
+   button.disabled=true;
+   const batch=photos.slice(cursor,cursor+4);cursor+=batch.length;
+   for(let start=0;start<batch.length;start+=2){
+    await Promise.all(batch.slice(start,start+2).map(async(p,j)=>{
+     const index=photos.indexOf(p)+1,box=document.createElement('div');grid.appendChild(box);
+     mlText(box,'span',index+'번 사진','hint');
+     async function load(){try{
+      let image=mlPhotoCache.get(p.id);if(!image){image=await compactMLImage(await downloadMLExportImage(p));if(mlPhotoCache.size>=40)mlPhotoCache.delete(mlPhotoCache.keys().next().value);mlPhotoCache.set(p.id,image);}
+      const img=document.createElement('img');img.src=image.base64;img.alt='주문 '+(g.orderNo||g.recipient)+' 사진 '+index;img.loading='lazy';
+      const open=document.createElement('button');open.className='photo-open';open.type='button';open.setAttribute('aria-label',index+'번 사진 크게 보기');open.appendChild(img);open.onclick=()=>openMLPhoto(p,g,image);
+      box.replaceChildren(open);mlText(box,'span',index+'번 사진','hint');
+     }catch(e){box.textContent='사진 불러오기 실패';const retry=mlText(box,'button','다시 보기');retry.type='button';retry.onclick=load;}}
+     await load();
+    }));
+   }
+   button.disabled=false;button.hidden=cursor>=photos.length;button.textContent='사진 더 보기 ('+cursor+'/'+photos.length+')';
+  }
+  const grid=mlText(panel,'div','','ml-photo-grid'),button=mlText(panel,'button','사진 더 보기');button.type='button';button.onclick=more;await more();
+ }catch(e){panel.textContent=e.message;const retry=mlText(panel,'button','다시 보기');retry.type='button';retry.onclick=()=>showMLGroupPhotos(g,panel);}
+}
+async function openMLPhoto(photo,g,preview){
+ const dialog=$('photoDialog');$('photoLarge').src=preview.base64;$('photoTitle').textContent='주문 '+(g.orderNo||g.recipient)+' · 사진';dialog.showModal();
+ const selected=photo.id;dialog.dataset.photo=selected;$('photoLoadStatus').textContent='큰 사진을 불러오는 중…';
+ try{const full=await downloadMLExportImage(photo);if(dialog.open&&dialog.dataset.photo===selected){$('photoLarge').src=full.base64;$('photoLoadStatus').textContent='';}}
+ catch(e){if(dialog.open&&dialog.dataset.photo===selected)$('photoLoadStatus').textContent='미리보기 표시 중 · 큰 사진은 다시 열어주세요.';}
+}
+function validateMLPeriod(from,to){if(!from||!to)throw Error('발송일 기준 다운로드 기간을 선택해주세요.');if(from>to)throw Error('시작일은 종료일보다 늦을 수 없습니다.');}
+function selectedMLExport(d,photos,from,to){
+ validateMLPeriod(from,to);
+ return groupMLOrders(d).filter(g=>inMLRange(g,{from,to})).map(g=>({...g,photos:matchingGroupPhotos(g,photos)})).filter(g=>groupTracking(g)||g.photoCount>0||g.photos.length>0);
+}
+let mlExportBusy=false;
+async function runMLExport(mode){
+ if(mlExportBusy)return;
+ try{
+  const from=$('exportFrom').value,to=$('exportTo').value;validateMLPeriod(from,to);
+  mlExportBusy=true;mlExportButtons.forEach(id=>$(id).disabled=true);show('notice','선택 기간의 주문을 확인하는 중입니다.');
+  const d=await call('getMLPortalData');data=d;
+  const photos=mode==='fast'?[]:await loadMLExportPhotos({from,to});
+  const groups=selectedMLExport(d,photos,from,to);if(!groups.length)throw Error('선택 기간에 송장번호 또는 사진이 있는 주문이 없습니다.');
+  if(mode==='fast'){
+   const rows=[['주문번호','발송일','수령인/기관','상품·수량','송장번호','아이스 소','아이스 중','아이스 대','종이 중','종이 대','사진 수','연락처','배송지','출고상태'],...groups.map(g=>[g.orderNo,g.date,g.recipient,groupProducts(g),groupTracking(g),...g.boxes,g.photoCount,g.contact,g.address,groupStatus(g)])];
+   const wb=XLSX.utils.book_new(),ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=[16,16,24,45,35,12,12,12,12,12,10,20,55,16].map(wch=>({wch}));XLSX.utils.book_append_sheet(wb,ws,'주문내역');downloadMLBytes(XLSX.write(wb,{bookType:'xlsx',type:'array'}),'ML_사진없이_'+from+'_'+to+'.xlsx');
+  }else{
+   const ExcelJS=await loadMLExcelEngine();
+   const wb=await buildMLPhotoWorkbook(ExcelJS,d,photos,p=>compactMLImageFromSaved(p),from,to);
+   downloadMLBytes(await wb.xlsx.writeBuffer(),'ML_사진포함_'+from+'_'+to+'.xlsx');
+  }
+  show('notice',from+' ~ '+to+' · 주문 '+groups.length+'건 다운로드 완료');render();
+ }catch(e){show('notice',e.message,true);}finally{mlExportBusy=false;mlExportButtons.forEach(id=>$(id).disabled=false);}
+}
+async function compactMLImageFromSaved(p){let image=mlPhotoCache.get(p.id);if(!image){image=await compactMLImage(await downloadMLExportImage(p));if(mlPhotoCache.size>=40)mlPhotoCache.delete(mlPhotoCache.keys().next().value);mlPhotoCache.set(p.id,image);}return image;}
+async function buildMLPhotoWorkbook(ExcelJS,d,photos,getImage,from,to){
+ const groups=selectedMLExport(d,photos,from,to),wb=new ExcelJS.Workbook();wb.creator='이로운과자점';
+ const ws=wb.addWorksheet('주문사진');ws.columns=[{width:42},{width:42},{width:24},{width:38}];
+ ws.pageSetup={orientation:'landscape',paperSize:9,fitToPage:true,fitToWidth:1,fitToHeight:0};
+ function textRow(values,height=30){const row=ws.addRow(values);row.height=height;row.font={name:'맑은 고딕',size:11};row.alignment={wrapText:true,vertical:'middle'};return row;}
+ const title=textRow(['발송일 '+from+' ~ '+to,'','주문 '+groups.length+'건',''],30);ws.mergeCells(title.number,1,title.number,2);
+ for(const g of groups){
+  const head=textRow(['주문 '+(g.orderNo||'승인 전')+' · '+g.recipient,'',g.date,groupStatus(g)],32);ws.mergeCells(head.number,1,head.number,2);head.font={name:'맑은 고딕',bold:true,color:{argb:'FFFFFFFF'}};head.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF285944'}};
+  const tr=groupTracking(g)||'미입력',tracking=textRow(['송장번호: '+tr,'','박스 수량',groupBoxes(g)],Math.min(120,Math.max(38,Math.ceil(tr.length/65)*18)));ws.mergeCells(tracking.number,1,tracking.number,2);
+  const info=textRow(['연락처: '+g.contact,'','배송지',g.address],Math.max(48,Math.ceil(g.address.length/22)*16));ws.mergeCells(info.number,1,info.number,2);
+  // Dedicated fixed-height rows keep photo anchors apart, even with many images.
+  const detailLines=g.entries.map(e=>e.row[2]+' × '+e.row[3]);
+  const pairCount=Math.max(1,Math.ceil(g.photos.length/2),Math.ceil(detailLines.length/10));
+  for(let pair=0;pair<pairCount;pair++){
+   const labels=textRow([g.photos[pair*2]?'사진 '+(pair*2+1):'',g.photos[pair*2+1]?'사진 '+(pair*2+2):'',pair===0?'상품·수량':'상품·수량 (계속)',''],22);
+   const imageRow=textRow(['','','',detailLines.slice(pair*10,(pair+1)*10).join('\n')],210);
+   if(!g.photos.length&&pair===0)imageRow.getCell(1).value='첨부사진 없음';
+   const batch=g.photos.slice(pair*2,pair*2+2);show('notice','주문 '+(g.orderNo||g.recipient)+' 사진 '+Math.min(pair*2+2,g.photos.length)+'/'+g.photos.length+'장 처리 중');
+   const images=await Promise.all(batch.map(getImage));
+   images.forEach((image,col)=>{const scale=Math.min(1,278/image.width,264/image.height),id=wb.addImage({base64:image.base64,extension:image.extension});ws.addImage(id,{tl:{col:col+0.02,row:imageRow.number-1+0.02},ext:{width:image.width*scale,height:image.height*scale},editAs:'oneCell'});});
+  }
+  textRow([],14);
+ }
+ ws.views=[{state:'frozen',ySplit:1}];return wb;
+}
+
+function downloadMLBytes(bytes,name){
+ const previous=$('lastDownload');if(previous){URL.revokeObjectURL(previous.href);previous.remove();}
+ const a=document.createElement('a');a.id='lastDownload';a.href=URL.createObjectURL(new Blob([bytes],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));a.download=name;a.target='_self';a.textContent='생성한 파일 다시 받기 · '+name;a.style.display='block';a.style.marginTop='16px';$('download').appendChild(a);a.click();
+}
+
+setupMLWorkflow();refresh();
+</script></body></html>

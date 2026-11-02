@@ -33,23 +33,28 @@ function mlUnlockRegistered_(s,states){
 }
 function getMLPortalData(){
  const s=mlSheet_(),state=mlPortalApi_('status');mlUnlockRegistered_(s,state.rows);
- mlApplyCanonical_(s,state.rows);
+ const uidRows=mlApplyCanonical_(s,state.rows);
+ const rowUids=new Map([...uidRows].map(([uid,row])=>[row,uid]));
  const data=getMLPortalDataLegacy_(),deleted=new Set(state.deleted_uids||[]),byUid=new Map(state.rows.map(x=>[String(x.source_uid),x]));
- const entries=data.rows.map((row,i)=>{const uid=mlUid_(s,data.sourceRows[i]),item=byUid.get(uid);
+ const entries=data.rows.map((row,i)=>{const uid=rowUids.get(data.sourceRows[i]),item=byUid.get(uid);
   return {row,sourceRow:data.sourceRows[i],uid,state:item&&mlKey_(item.fields)===mlKey_(row)?item:null};
  }).filter(e=>!deleted.has(e.uid));
  const editable=new Set(entries.filter(e=>e.state?.status==='승인'&&['주문접수','준비중'].includes(e.state.order_status)).map(e=>e.sourceRow));
- return {...data,lockedSourceRows:(data.lockedSourceRows||[]).filter(n=>!editable.has(n)),rows:entries.map(e=>e.row),sourceRows:entries.map(e=>e.sourceRow),
+ return {...data,lockedSourceRows:(data.lockedSourceRows||[]).filter(n=>!editable.has(n)),rows:entries.map(e=>e.state?.status==='승인'&&Object.prototype.hasOwnProperty.call(e.state,'tracking_numbers')?[...e.row.slice(0,8),String(e.state.tracking_numbers||''),...['ice_small','ice_medium','ice_large','paper_medium','paper_large'].map(k=>String(e.state[k]||0)),String(e.state.photo_count||0)]:e.row),sourceRows:entries.map(e=>e.sourceRow),
   orderStates:entries.map(e=>e.state?{source_uid:e.uid,status:e.state.status,order_status:e.state.order_status,
-   updated_at:e.state.updated_at}:null)};
+   updated_at:e.state.updated_at,approved_order_id:e.state.approved_order_id,order_no:e.state.order_no}:null)};
 }
 function mlApplyCanonical_(s,states){
+ const uidRows=new Map();
+ const metadata=s.getParent().createDeveloperMetadataFinder().withKey(ML_UID_KEY_).find();
+ for(const m of metadata){const r=m.getLocation().getRow();if(r&&r.getSheet().getSheetId()===s.getSheetId())uidRows.set(String(m.getValue()),r.getRow());}
+ const last=s.getLastRow(),values=last<2?[]:s.getRange(2,1,last-1,8).getDisplayValues();
  for(const item of states.filter(x=>x.status==='승인'&&x.approved_order_id&&Array.isArray(x.fields))){
-  let target=0;
-  for(let n=2;n<=s.getLastRow();n++)if(mlUid_(s,n)===item.source_uid){target=n;break;}
-  if(!target){target=s.getLastRow()+1;mlWrite_(s,target,[item.fields]);s.getRange(target+':'+target).addDeveloperMetadata(ML_UID_KEY_,item.source_uid,SpreadsheetApp.DeveloperMetadataVisibility.DOCUMENT);}
-  else if(mlKey_(s.getRange(target,1,1,8).getDisplayValues()[0])!==mlKey_(item.fields))mlWrite_(s,target,[item.fields]);
+  let target=uidRows.get(String(item.source_uid));
+  if(!target){target=s.getLastRow()+1;mlWrite_(s,target,[item.fields]);s.getRange(target+':'+target).addDeveloperMetadata(ML_UID_KEY_,item.source_uid,SpreadsheetApp.DeveloperMetadataVisibility.DOCUMENT);uidRows.set(String(item.source_uid),target);}
+  else if(mlKey_(values[target-2]||[])!==mlKey_(item.fields))mlWrite_(s,target,[item.fields]);
  }
+ return uidRows;
 }
 function updateMLPortalOrder(sourceRow,expected,input){
  const lock=LockService.getScriptLock();lock.waitLock(30000);
@@ -68,7 +73,6 @@ function updateMLPortalOrder(sourceRow,expected,input){
   }
   if(row&&!['등록','승인대기'].includes(row.status))throw Error('수정할 수 없는 주문입니다.');
  }finally{lock.releaseLock();}
- // Legacy function acquires the same script lock itself.
  const s=mlSheet_();mlUnlockRegistered_(s,mlPortalApi_('status').rows);
  return updateMLPortalOrderLegacy_(sourceRow,expected,input);
 }
@@ -87,3 +91,5 @@ function manageMLPortalOrder(uid,updated,expected,action){
   return {ok:true,action};
  }finally{lock.releaseLock();}
 }
+
+
