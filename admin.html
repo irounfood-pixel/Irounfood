@@ -77,6 +77,15 @@
  .main:has(.parcel-table){padding:12px}
 }
 
+
+/* Daily workflow: shared order information and compact actions. */
+.home-logo{border:0;background:transparent;text-align:left;cursor:pointer}
+.work-card{text-align:left;color:var(--text);display:flex;flex-direction:column;gap:8px;min-height:140px}
+.work-card:hover{border-color:var(--p);background:#f4faf5}.work-card:focus-visible{outline:3px solid var(--p)}
+.work-filter{margin:14px 0}.work-filter label{font-size:13px;color:var(--muted)}
+.parcel-products,.parcel-address{overflow-wrap:anywhere;white-space:normal}.parcel-products>div+div{margin-top:6px}
+.parcel-table th:nth-child(2){width:24%}.parcel-table th:nth-child(3){width:auto}
+@media(max-width:760px){.parcel-table td:nth-child(2)::before{content:'수령인 · 배송지: '}.parcel-table td:nth-child(3)::before{content:'상품 · 수량: '}}
 </style>
 </head>
 <body><div role="status" style="position:sticky;top:0;z-index:1000;padding:10px 14px;background:#e8f4ee;color:#24563b;border-bottom:1px solid #c7e4d2;text-align:center;font:700 13px/1.45 system-ui,-apple-system,sans-serif">운영 시스템입니다. 출고 처리 전 실제 재고 수량을 확인하세요.</div>
@@ -91,7 +100,7 @@
   </div>
 </div>
 <div id="app" class="layout hidden">
-  <aside class="side"><div class="logo">이로운과자점<small>주문 · 상품 · 재고 관리</small></div><div class="nav" id="nav"></div><div class="foot"><button class="btn light" style="width:100%" onclick="logout()">로그아웃</button></div></aside>
+  <aside class="side"><button class="logo home-logo" type="button" onclick="route('dashboard')">이로운과자점<small>홈 · 오늘 할 일</small></button><div class="nav" id="nav"></div><div class="foot"><button class="btn light" style="width:100%" onclick="logout()">로그아웃</button></div></aside>
   <main class="main"><div id="page"></div></main>
 </div>
 <div id="modal" class="modal hidden"><div class="modalbox" id="modalBox"></div></div>
@@ -102,7 +111,7 @@ const SUPABASE_URL='https://iqopdxrnkmpdivzndkxq.supabase.co';
 const SUPABASE_KEY='sb_publishable_8jMegFjVcyhp1SIRZHosAQ_fVoxo8Nr';
 const {createClient}=supabase; const db=createClient(SUPABASE_URL,SUPABASE_KEY);
 let state={page:'dashboard',orders:[],products:[],items:[],requests:[],movements:[],loading:false,errors:[]};
-const menus=[['dashboard','대시보드'],['products','상품관리'],['inventory','재고관리'],['order','주문등록'],['orders','주문현황'],['orderprocess','주문처리'],['shipped','출고완료'],['requests','고객주문'],['partner','거래처 주문 승인'],['parcel','송장·포장박스'],['mlparcel','ML 송장·포장박스'],['calendar','발송캘린더'],['prep','월별 준비량'],['settings','설정']];
+const menus=[['requests','1 · 주문승인'],['calendar','2 · 발송캘린더'],['orders','3 · 주문현황'],['parcel','송장·포장박스'],['mlparcel','ML 송장·포장박스'],['prep','월별 준비량'],['shipped','출고완료'],['inventory','재고관리'],['products','상품관리'],['settings','설정']];
 const $=id=>document.getElementById(id);
 function esc(v){return String(v??'').replace(/[&<>'"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[m]));}
 function toast(msg){$('toast').textContent=msg;$('toast').classList.remove('hidden');clearTimeout(window.__t);window.__t=setTimeout(()=>$('toast').classList.add('hidden'),2600)}
@@ -182,39 +191,75 @@ new MutationObserver(scheduleHorizontalTableScrolls).observe($('page'),{childLis
 window.addEventListener('resize',scheduleHorizontalTableScrolls,{passive:true});
 
 function renderNav(){$('nav').innerHTML=menus.map(([k,n])=>`<button class="${state.page===k?'active':''}" onclick="route('${k}')">${n}</button>`).join('')}
-function route(p){state.page=p;renderNav();({dashboard:renderDashboard,order:renderOrderForm,orders:renderOrders,orderprocess:renderOrderProcessing,shipped:renderShippedOrders,requests:renderRequests,partner:renderPartnerOrders,parcel:renderParcelEditor,mlparcel:renderParcelEditor,calendar:renderCalendar,prep:renderMonthlyPrep,products:renderProducts,inventory:renderInventory,settings:renderSettings}[p]||renderDashboard)()}
+const workFilters={orders:{},parcel:{},mlparcel:{}};
+const pagePositions={};let routeVersion=0;
+async function route(p,reset=false){
+ p=({partner:'requests',orderprocess:'orders'})[p]||p;
+ pagePositions[state.page]=window.scrollY;const version=++routeVersion;
+ if(reset)pagePositions[p]=0;state.page=p;renderNav();
+ await ({dashboard:renderDashboard,order:renderOrderForm,orders:renderOrders,shipped:renderShippedOrders,requests:renderRequests,parcel:renderParcelEditor,mlparcel:renderParcelEditor,calendar:renderCalendar,prep:renderMonthlyPrep,products:renderProducts,inventory:renderInventory,settings:renderSettings}[p]||renderDashboard)();
+ if(version===routeVersion)window.scrollTo(0,pagePositions[p]||0);
+}
+function koreaDay(offset=0,now=new Date()){
+ const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(now);
+ const value=k=>Number(parts.find(p=>p.type===k).value);
+ return new Date(Date.UTC(value('year'),value('month')-1,value('day')+offset)).toISOString().slice(0,10);
+}
+function isOpenOrder(o){return ['주문접수','준비중'].includes(o.order_status||'주문접수');}
+function isParcelEligible(o){return o.order_status!=='취소'&&String(o.receive_method||'').trim()!=='방문수령'&&(String(o.receive_method||'').trim()==='택배'||o.order_source==='거래처시트');}
+function matchesWork(o,f={},details=window.__parcelDetails||{}){
+ return (!f.date||o.ship_date===f.date)&&(!f.overdue||(o.ship_date&&o.ship_date<koreaDay()&&isOpenOrder(o)))&&(!f.open||isOpenOrder(o))&&(!f.missing||!String(details[o.id]?.tracking_numbers||'').trim())&&(!f.id||o.id===f.id);
+}
+function goApprovals(){window.__approvalSource='all';window.__approvalHistory=false;return route('requests',true);}
+function goWork(page,filter={}){workFilters[page]={...filter};if(page==='orders'){window.__orderq='';window.__orderStatus='전체';}pagePositions[page]=0;return route(page,true);}
+function workFilterBar(page){const f=workFilters[page]||{};return `<div class="toolbar work-filter"><label>발송일 <input aria-label="발송일 필터" type="date" value="${esc(f.date||'')}" onchange="goWork('${page}',{...workFilters['${page}'],date:this.value,overdue:false})"></label>${f.overdue?'<span class="badge danger">발송일 지난 미출고</span>':''}${f.missing?'<span class="badge warn">송장 미입력</span>':''}${f.open?'<span class="badge">미출고</span>':''}${f.id?'<span class="badge">선택 주문</span>':''}<button class="btn light" onclick="goWork('${page}')">전체 보기</button></div>`;}
+async function openCalendarDay(day){const [y,m]=day.split('-').map(Number);window.__cal=new Date(y,m-1,1);await route('calendar');showCalendarDate(day);}
+async function readPaged(factory){let rows=[];for(let from=0;;from+=500){const {data,error}=await factory().range(from,from+499);if(error)return {data:null,error};rows.push(...(data||[]));if(!data||data.length<500)return {data:rows,error:null};}}
+async function loadShippingSummary(){try{const {data,error}=await readPaged(()=>db.from('order_shipping_details').select('*').order('order_id'));if(error)throw error;window.__parcelDetails=Object.fromEntries(data.map(x=>[x.order_id,x]));window.__shippingError=null;return true;}catch(e){window.__shippingError=e.message||String(e);return false;}}
+
 async function readTable(label,queryFactory){
  try{const {data,error}=await queryFactory();if(error){const message=label+': '+(error.message||'조회 오류');state.errors.push(message);console.error(message,error);return null;}return data||[];}
  catch(e){const message=label+': '+(e.message||e);state.errors.push(message);console.error(message,e);return null;}
 }
 async function loadAll(){state.loading=true;state.errors=[];try{
  const [os,pis,ii,cr,mv]=await Promise.all([
-  readTable('주문',()=>db.from('orders').select('*,order_items(*)').is('deleted_at',null).order('ship_date',{ascending:true}).order('order_no',{ascending:true})),
+  readTable('주문',()=>readPaged(()=>db.from('orders').select('*,order_items(*)').is('deleted_at',null).order('ship_date',{ascending:true}).order('order_no',{ascending:true}).order('id'))),
   readTable('상품',()=>db.from('products').select('*').order('name')),
   readTable('재고품목',()=>db.from('inventory_items').select('*').order('name')),
-  readTable('고객주문신청',()=>db.from('customer_order_requests').select('*,customer_order_request_items(*)').order('created_at',{ascending:false})),
+  readTable('고객주문신청',()=>readPaged(()=>db.from('customer_order_requests').select('*,customer_order_request_items(*)').order('created_at',{ascending:false}).order('id'))),
   readTable('재고이력',()=>db.from('inventory_transactions').select('*').order('created_at',{ascending:false}).limit(200))
  ]);
  state.orders=os||[];state.products=pis||[];state.items=ii||[];state.requests=cr||[];state.movements=mv||[];
  if(state.errors.length)toast('일부 데이터 조회 실패: '+state.errors[0]);
  }catch(e){state.errors.push('초기화: '+(e.message||e));console.error(e);toast('데이터 조회 실패: '+(e.message||e));}finally{state.loading=false}}
-let initPromise=null;async function init(){if(initPromise)return initPromise;initPromise=(async()=>{await loadAll();route(state.page)})();try{return await initPromise}finally{initPromise=null}}
+let initPromise=null;async function init(){if(initPromise)return initPromise;initPromise=(async()=>{await loadAll();await route(state.page)})();try{return await initPromise}finally{initPromise=null}}
 function stat(label,num){return `<div class="stat"><div class="label">${label}</div><div class="num">${num}</div></div>`}
 function activeProducts(){return state.products.filter(x=>x.active!==false)}
 function fmt(n){return Number(n||0).toLocaleString('ko-KR')}
 function dateStr(d){return d?new Date(d).toLocaleDateString('ko-KR'):''}
 function orderRows(){return state.orders.flatMap(o=>(o.order_items||[]).map(i=>({...i,order:o})))}
-function renderDashboard(){
- const today=new Date().toISOString().slice(0,10); const tom=new Date(Date.now()+86400000).toISOString().slice(0,10);
- const todayCount=state.orders.filter(o=>o.ship_date===today&&o.order_status!=='취소').length; const tomCount=state.orders.filter(o=>o.ship_date===tom&&o.order_status!=='취소').length;
- const pending=state.orders.filter(o=>['주문접수','준비중'].includes(o.order_status||'주문접수')).length;
- const low=state.items.filter(i=>Number(i.current_qty)<0).length;
- $('page').innerHTML=`<div class="top"><div><h1>대시보드</h1><div class="muted">${new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric',weekday:'long'})}</div></div><button class="btn secondary" onclick="init()">새로고침</button></div>
- <div class="grid4">${stat('오늘 발송',todayCount+'건')}${stat('내일 발송',tomCount+'건')}${stat('대기 주문',pending+'건')}${stat('재고 품목',state.items.length+'개')}</div>
- <div class="grid3"><div class="panel"><div class="between"><h2 style="margin:0">오늘 발송</h2><button class="btn light" onclick="route('calendar')">캘린더</button></div>${shippingList(today)}</div>
- <div class="panel"><div class="between"><h2 style="margin:0">재고 주의</h2><button class="btn light" onclick="route('inventory')">재고관리</button></div>${inventoryWarnings()}</div>
- <div class="panel"><div class="between"><h2 style="margin:0">고객 주문신청</h2><button class="btn light" onclick="route('requests')">확인</button></div>${requestList()}</div></div>`
+async function renderDashboard(){
+ const target=$('page'),version=routeVersion,today=koreaDay(),tom=koreaDay(1);
+ const orders=state.orders.filter(o=>o.order_status!=='취소'),todayOrders=orders.filter(o=>o.ship_date===today);
+ const unfinished=todayOrders.filter(isOpenOrder),late=orders.filter(o=>matchesWork(o,{overdue:true}));
+ const failed=state.errors.some(x=>x.startsWith('주문:'));
+ const card=(label,value,action,hint='')=>`<button type="button" class="stat work-card" onclick="${action}"><span class="label">${label}</span><span class="num">${value}</span><span class="muted">${hint}</span></button>`;
+ target.innerHTML=`<div class="top"><div><h1>오늘 할 일</h1><div class="muted">${today} · 한국 시간 기준</div></div><button class="btn secondary" onclick="init()">새로고침</button></div>${errorBanner()}${!failed&&late.length?`<button class="btn danger" onclick="goWork('orders',{overdue:true})">발송일 지난 미출고 ${late.length}건 → 확인</button>`:''}<div class="grid3">
+ ${card('1 · 주문승인',state.errors.some(x=>x.startsWith('고객주문신청:'))?'고객 조회 실패':'고객 '+state.requests.filter(r=>r.status==='신청').length+'건',"goApprovals()",'<span id="home-partner-count">거래처 확인 중…</span>')}
+ ${card('2 · 오늘 발송',failed?'조회 실패':todayOrders.length+'건',"openCalendarDay('"+today+"')",'상품 수량 확인 · 명세표 출력')}
+ ${card('3 · 오늘 출고처리 대기',failed?'조회 실패':unfinished.length+'건',"goWork('orders',{date:'"+today+"',open:true})",failed?'':('완료 '+todayOrders.filter(o=>o.order_status==='출고완료').length+'건 · 목록에서 출고처리'))}
+ </div><div class="panel"><div class="between"><h2>오늘 송장 미입력</h2><span class="muted">오늘 미출고 택배 중 남은 작업</span></div><div id="home-shipping" class="toolbar">확인 중…</div></div><div class="grid3">
+ ${card('내일 발송',failed?'조회 실패':orders.filter(o=>o.ship_date===tom).length+'건',"openCalendarDay('"+tom+"')",'내일 준비 물량 확인')}
+ ${card('주문현황','전체 보기',"goWork('orders')",'검색 · 수정 · 출고처리')}
+ ${card('새 주문','+ 주문등록',"route('order')",'기관·전화 주문 직접 등록')}
+ </div>`;
+ const [shipping,partner]=await Promise.all([loadShippingSummary(),db.from('partner_order_rows').select('id',{count:'exact',head:true}).in('status',['등록','승인대기']).then(r=>r,e=>({error:e}))]);
+ if(state.page!=='dashboard'||routeVersion!==version)return;
+ $('home-partner-count').textContent=partner.error?'거래처 조회 실패':('거래처 '+(partner.count||0)+'행 · 고객·ML 통합 확인');
+ const missing=orders.filter(o=>isParcelEligible(o)&&matchesWork(o,{date:today,open:true,missing:true}));
+ $('home-shipping').innerHTML=!shipping||failed?'<span class="dangertext">조회 실패 · 새로고침해 주세요.</span>':['parcel','mlparcel'].map(page=>`<button class="btn secondary" onclick="goWork('${page}',{date:'${today}',open:true,missing:true})">${page==='mlparcel'?'ML':'일반'} ${missing.filter(o=>isMLParcelOrder(o)===(page==='mlparcel')).length}건 → 송장 입력</button>`).join('');
 }
+
 function shippingList(day){const a=state.orders.filter(o=>o.ship_date===day&&o.order_status!=='취소');if(!a.length)return '<div class="empty">오늘 발송 주문이 없습니다.</div>';return '<div>'+a.slice(0,8).map(o=>`<div style="padding:10px 0;border-bottom:1px solid var(--line)"><b>${esc(o.order_no)}</b> · ${esc(o.customer_name||o.address||'')}</div>`).join('')+'</div>'}
 function inventoryWarnings(){const a=state.items.filter(i=>Number(i.current_qty)<=0);if(!a.length)return '<div class="empty">현재 재고가 0 이하인 품목이 없습니다.</div>';return a.slice(0,8).map(i=>`<div style="padding:10px 0;border-bottom:1px solid var(--line)"><b>${esc(i.name)}</b> <span class="dangertext">${fmt(i.current_qty)} ${esc(i.unit||'')}</span></div>`).join('')}
 function requestList(){const a=state.requests.filter(x=>x.status==='신청').slice(0,7);if(!a.length)return '<div class="empty">대기 중인 고객 주문신청이 없습니다.</div>';return a.map(x=>`<div style="padding:10px 0;border-bottom:1px solid var(--line)"><b>${esc(x.customer_name)}</b> · ${esc(x.contact||'')} <span class="badge warn">신청</span></div>`).join('')}
@@ -222,7 +267,7 @@ function productOptions(onlyActive=true){return (onlyActive?activeProducts():sta
 function itemOptions(){return state.items.map(i=>`<option value="${esc(i.id)}">${esc(i.name)} (${fmt(i.current_qty)} ${esc(i.unit||'')})</option>`).join('')}
 function renderOrderForm(){
  $('page').innerHTML=`<div class="top"><div><h1>주문등록</h1><div class="muted">기관 주문이나 관리자가 대신 접수하는 고객 주문을 등록합니다.</div></div></div>
- <div class="panel"><div class="formgrid3"><div class="field"><label>주문일</label><input id="o_date" type="date" value="${new Date().toISOString().slice(0,10)}"></div><div class="field"><label>기관/고객명 *</label><input id="o_customer" placeholder="예: ○○초등학교 / 홍길동"></div><div class="field"><label>담당자</label><input id="o_manager" placeholder="담당자"></div><div class="field"><label>연락처</label><input id="o_contact" placeholder="010-0000-0000"></div><div class="field"><label>배송일 *</label><input id="o_ship" type="date"></div><div class="field"><label>주문경로</label><select id="o_source"><option>기관주문</option><option>온라인주문</option><option>기타</option></select></div><div class="field"><label>배송지 *</label><input id="o_address" placeholder="주소"></div><div class="field"><label>수령방법</label><select id="o_method"><option>택배</option><option>방문수령</option></select></div><div class="field"><label>요청사항</label><input id="o_note" placeholder="요청사항"></div></div>
+ <div class="panel"><div class="formgrid3"><div class="field"><label>주문일</label><input id="o_date" type="date" value="${koreaDay()}"></div><div class="field"><label>기관/고객명 *</label><input id="o_customer" placeholder="예: ○○초등학교 / 홍길동"></div><div class="field"><label>담당자</label><input id="o_manager" placeholder="담당자"></div><div class="field"><label>연락처</label><input id="o_contact" placeholder="010-0000-0000"></div><div class="field"><label>배송일 *</label><input id="o_ship" type="date"></div><div class="field"><label>주문경로</label><select id="o_source"><option>기관주문</option><option>온라인주문</option><option>기타</option></select></div><div class="field"><label>배송지 *</label><input id="o_address" placeholder="주소"></div><div class="field"><label>수령방법</label><select id="o_method"><option>택배</option><option>방문수령</option></select></div><div class="field"><label>요청사항</label><input id="o_note" placeholder="요청사항"></div></div>
  <div style="margin-top:18px"><div class="between"><h2 style="margin:0">상품</h2><button class="btn secondary" onclick="addOrderLine()">+ 상품 추가</button></div><div id="olines"></div></div>
  <div style="display:flex;justify-content:flex-end;margin-top:16px"><button class="btn primary" onclick="saveOrder()">주문 저장</button></div></div>`;
  addOrderLine();
@@ -258,9 +303,16 @@ async function saveOrder(){
    route('orders');
  }catch(e){toast('저장 실패: '+(e.message||e))}
 }
-function renderOrders(){const q=(window.__orderq||'').toLowerCase();const selectedStatus=window.__orderStatus||'전체';const status=['전체','주문접수','준비중'].includes(selectedStatus)?selectedStatus:'전체';const rows=state.orders.filter(o=>o.order_status!=='취소'&&o.order_status!=='출고완료'&&(status==='전체'||(o.order_status||'주문접수')===status)&&(!q||JSON.stringify(o).toLowerCase().includes(q)));$('page').innerHTML=`<div class="top"><div><h1>주문현황</h1><div class="muted">미출고 주문을 검색하고 엑셀로 다운로드할 수 있습니다. 출고완료 내역은 별도 메뉴에서 확인하세요.</div></div><div class="toolbar"><input placeholder="주문번호 / 고객명 / 상품 검색" value="${esc(window.__orderq||'')}" oninput="window.__orderq=this.value;renderOrders()"><select onchange="window.__orderStatus=this.value;renderOrders()"><option>전체</option><option>주문접수</option><option>준비중</option></select><button class="btn secondary" onclick="exportOrders()">엑셀 다운로드</button><button class="btn primary" onclick="route('order')">+ 주문등록</button></div></div>
- <div class="panel"><div class="tablewrap"><table class="table"><thead><tr><th>주문번호</th><th>고객/기관</th><th>연락처</th><th>배송일</th><th>상품</th><th>수량</th><th>상태</th><th></th></tr></thead><tbody>${rows.length?rows.map(o=>`<tr><td><b>${esc(o.order_no)}</b></td><td>${esc(o.customer_name||o.address||'')}</td><td>${esc(o.contact||'')}</td><td>${esc(o.ship_date||'')}</td><td>${(o.order_items||[]).map(i=>esc(i.product_name_snapshot||i.kit_name)).join('<br>')}</td><td>${(o.order_items||[]).map(i=>fmt(i.quantity)).join('<br>')}</td><td><span class="badge ${o.order_status==='출고완료'?'good':o.order_status==='취소'?'danger':'warn'}">${esc(o.order_status||'주문접수')}</span></td><td><button class="btn light" onclick="openOrder('${o.id}')">상세</button> ${canEditOrder(o)?`<button class="btn secondary" onclick="openEditOrder('${o.id}')">수정</button>`:''}</td></tr>`).join(''):`<tr><td colspan="8"><div class="empty">주문이 없습니다.</div></td></tr>`}</tbody></table></div></div>`}
-function renderOrderProcessing(){const rows=state.orders.filter(o=>o.order_status!=='취소').sort((a,b)=>(a.ship_date||'').localeCompare(b.ship_date||'')||String(a.order_no||'').localeCompare(String(b.order_no||'')));$('page').innerHTML=`<div class="top"><div><h1>주문처리</h1><div class="muted">주문 상세에서 출고완료 처리 시 연결된 재고가 자동 차감됩니다. 재고관리의 수동 차감은 주문 출고와 별개입니다.</div></div><div class="toolbar"><button class="btn secondary" onclick="init()">새로고침</button><button class="btn light" onclick="route('orders')">전체 주문현황</button></div></div><div class="panel"><div class="tablewrap"><table class="table"><thead><tr><th>배송일</th><th>주문번호</th><th>주문자/기관</th><th>배송지</th><th>상품 및 수량</th><th>상태</th><th>처리</th></tr></thead><tbody>${rows.length?rows.map(o=>`<tr><td>${esc(o.ship_date||'')}</td><td><b>${esc(o.order_no||'')}</b></td><td>${esc(o.customer_name||'')}</td><td>${esc(o.address||'주소 정보 없음')}</td><td>${(o.order_items||[]).map(i=>`${esc(i.product_name_snapshot||i.kit_name)} × ${fmt(i.quantity)}`).join('<br>')}</td><td><span class="badge ${o.order_status==='출고완료'?'good':'warn'}">${esc(o.order_status||'주문접수')}</span></td><td><button class="btn primary" onclick="openOrder('${o.id}')">상세 / 처리</button></td></tr>`).join(''):`<tr><td colspan="7"><div class="empty">처리할 주문이 없습니다.</div></td></tr>`}</tbody></table></div></div>`}
+let ordersRenderRequest=0;
+function visibleOrders(){const q=(window.__orderq||'').toLowerCase(),status=window.__orderStatus||'전체';return state.orders.filter(o=>isOpenOrder(o)&&(status==='전체'||(o.order_status||'주문접수')===status)&&matchesWork(o,workFilters.orders)&&(!q||JSON.stringify(o).toLowerCase().includes(q)));}
+async function renderOrders(){
+ const version=routeVersion,request=++ordersRenderRequest,rows=visibleOrders();
+ $('page').innerHTML=`<div class="top"><div><h1>주문현황</h1><div class="muted">진행 중인 주문 ${rows.length}건 · 출고완료 처리 시 재고가 차감됩니다.</div></div><div class="toolbar"><button class="btn secondary" onclick="exportOrders()">현재 목록 엑셀</button><button class="btn primary" onclick="route('order')">+ 주문등록</button></div></div>${errorBanner()}${workFilterBar('orders')}<div class="toolbar"><input id="order-search" aria-label="주문 검색" placeholder="주문번호 / 기관 / 상품" value="${esc(window.__orderq||'')}" onchange="window.__orderq=this.value;renderOrders()"><select aria-label="주문 상태" onchange="window.__orderStatus=this.value;renderOrders()">${['전체','주문접수','준비중'].map(x=>`<option ${(window.__orderStatus||'전체')===x?'selected':''}>${x}</option>`).join('')}</select><button class="btn light" onclick="init()">새로고침</button></div><div class="panel"><div class="tablewrap"><table class="table"><thead><tr><th>발송일</th><th>주문번호 · 기관</th><th>상품 · 수량</th><th>상태</th><th>송장</th><th>작업</th></tr></thead><tbody>${rows.map(o=>`<tr><td>${esc(o.ship_date||'미지정')}</td><td><b>${esc(o.order_no)}</b><br>${esc(o.customer_name||'')}<br><span class="badge">${isMLParcelOrder(o)?'ML':esc(o.receive_method||'일반')}</span>${o.note?'<span class="badge warn">요청사항 있음</span>':''}</td><td>${(o.order_items||[]).map(i=>`${esc(i.product_name_snapshot||i.kit_name)} × ${fmt(i.quantity)}`).join('<br>')}</td><td>${esc(o.order_status||'주문접수')}</td><td id="order-track-${o.id}">${isParcelEligible(o)?'확인 중':'해당 없음'}</td><td><div class="toolbar"><button class="btn light" onclick="openOrder('${o.id}')">상세</button>${canEditOrder(o)?`<button class="btn secondary" onclick="openEditOrder('${o.id}')">수정</button>`:''}<button class="btn primary" onclick="shipOrder('${o.id}')">출고완료</button></div></td></tr>`).join('')||'<tr><td colspan="6" class="empty">해당 조건의 미출고 주문이 없습니다.</td></tr>'}</tbody></table></div></div>`;
+ const ok=await loadShippingSummary();if(state.page!=='orders'||routeVersion!==version||request!==ordersRenderRequest)return;
+ for(const o of rows){const el=$('order-track-'+o.id);if(el&&isParcelEligible(o))el.innerHTML=ok?`<button class="btn light" onclick="goWork('${isMLParcelOrder(o)?'mlparcel':'parcel'}',{id:'${o.id}'})">${String(window.__parcelDetails[o.id]?.tracking_numbers||'').trim()?'입력됨':'미입력'}</button>`:'조회 실패';}
+}
+function renderOrderProcessing(){return route('orders');}
+
 function renderShippedOrders(){
  const rows=state.orders.filter(o=>o.order_status==='출고완료').sort((a,b)=>(b.ship_date||'').localeCompare(a.ship_date||'')||String(b.order_no||'').localeCompare(String(a.order_no||'')));
  const totalUnits=rows.reduce((sum,o)=>sum+(o.order_items||[]).reduce((n,i)=>n+Number(i.quantity||0),0),0);
@@ -422,10 +474,11 @@ async function removeOrderPhoto(photoId,orderId){
  if(['parcel','mlparcel'].includes(state.page))void refreshParcelPhotoCounts();
 }
 
-async function shipOrder(id){try{const {data,error}=await db.rpc('ship_order_v2',{p_order_id:id});if(error)throw error;toast('출고완료 및 재고 차감이 처리되었습니다.');closeModal();await init();route('orders')}catch(e){toast('출고 처리 실패: '+(e.message||e))}}
-async function cancelOrder(id){const o=state.orders.find(x=>x.id===id);if(!o)return;if(o.order_status==='출고완료')return toast('출고완료 주문은 여기서 취소할 수 없습니다.');if(o.order_status==='취소')return toast('이미 취소된 주문입니다.');if(!confirm('이 주문을 취소할까요?\\n\\n고객 주문에서 승인된 건이면 주문신청을 다시 “신청” 상태로 돌려놓습니다.'))return;try{const {data:didCancel,error}=await db.rpc('cancel_order_v2',{p_order_id:id});if(error)throw error;if(didCancel===false)return toast('이미 취소된 주문입니다.');toast('주문이 취소되었습니다. 고객 주문신청이 있으면 다시 검토할 수 있도록 되돌렸습니다.');closeModal();await init();route('orders')}catch(e){toast('취소 실패: '+(e.message||e))}}
-function exportOrders(){const rows=orderRows().filter(r=>r.order.order_status!=='취소'&&r.order.order_status!=='출고완료').map(r=>({주문번호:r.order.order_no,주문일:r.order.order_date||'',주문경로:r.order.order_source||'',고객기관명:r.order.customer_name||'',담당자:r.order.manager_name||'',연락처:r.order.contact||'',배송일:r.order.ship_date||'',배송지:r.order.address||'',수령방법:r.order.receive_method||'',상품명:r.product_name_snapshot||r.kit_name||'',수량:r.quantity||0,주문상태:r.order.order_status||'',결제상태:r.order.payment_status||'',요청사항:r.order.note||''}));const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'주문내역');XLSX.writeFile(wb,'이로운과자점_주문내역.xlsx')}
-function renderRequests(){const rows=state.requests;$('page').innerHTML=`<div class="top"><div><h1>고객 주문</h1><div class="muted">대기 신청의 주문 등록(승인) 또는 거절을 선택합니다. 취소된 승인 주문은 신청 상태로 돌아와 다시 검토할 수 있습니다.</div></div><button class="btn secondary" onclick="init()">새로고침</button></div><div class="panel"><div class="tablewrap"><table class="table"><thead><tr><th>신청일</th><th>고객</th><th>연락처</th><th>상품</th><th>배송지</th><th>상태</th><th>결정</th></tr></thead><tbody>${rows.length?rows.map(r=>`<tr><td>${dateStr(r.created_at)}</td><td>${esc(r.customer_name)}</td><td>${esc(r.contact||'')}</td><td>${(r.customer_order_request_items||[]).map(i=>esc(i.product_name_snapshot)).join('<br>')}</td><td>${esc(r.address||'')}</td><td><span class="badge ${r.status==='신청'?'warn':r.status==='승인'?'good':'danger'}">${esc(r.status)}</span></td><td style="white-space:nowrap">${r.status==='신청'?`<button class="btn primary" onclick="approveRequest('${r.id}')">주문 등록(승인)</button> <button class="btn danger" onclick="rejectRequest('${r.id}')">거절</button>`:r.status==='거절'?'<span class="muted">거절됨</span>':'<span class="muted">주문 등록됨</span>'}</td></tr>`).join(''):`<tr><td colspan="7"><div class="empty">고객 주문신청이 없습니다.</div></td></tr>`}</tbody></table></div></div><div id="partnerInline"><div class="panel">Google Sheets 승인대기 주문을 불러오는 중입니다.</div></div>`;renderPartnerOrders(true)}
+const shippingBusy=new Set();
+async function shipOrder(id){const order=state.orders.find(o=>o.id===id);if(!order||!isOpenOrder(order)||shippingBusy.has(id))return;if(!confirm('주문 '+order.order_no+'을 출고완료 처리할까요?\n연결된 재고가 차감됩니다.'))return;shippingBusy.add(id);try{const {data,error}=await db.rpc('ship_order_v2',{p_order_id:id});if(error)throw error;toast('출고완료 및 재고 차감이 처리되었습니다.');closeModal();await loadAll();await route('orders')}catch(e){toast('출고 처리 실패: '+(e.message||e))}finally{shippingBusy.delete(id);}}
+async function cancelOrder(id){const o=state.orders.find(x=>x.id===id);if(!o)return;if(o.order_status==='출고완료')return toast('출고완료 주문은 여기서 취소할 수 없습니다.');if(o.order_status==='취소')return toast('이미 취소된 주문입니다.');if(!confirm('이 주문을 취소할까요?\\n\\n고객 주문에서 승인된 건이면 주문신청을 다시 “신청” 상태로 돌려놓습니다.'))return;try{const {data:didCancel,error}=await db.rpc('cancel_order_v2',{p_order_id:id});if(error)throw error;if(didCancel===false)return toast('이미 취소된 주문입니다.');toast('주문이 취소되었습니다. 고객 주문신청이 있으면 다시 검토할 수 있도록 되돌렸습니다.');closeModal();await loadAll();await route('orders')}catch(e){toast('취소 실패: '+(e.message||e))}}
+function exportOrders(){const ids=new Set(visibleOrders().map(o=>o.id));const rows=orderRows().filter(r=>ids.has(r.order.id)).map(r=>({주문번호:r.order.order_no,주문일:r.order.order_date||'',주문경로:r.order.order_source||'',고객기관명:r.order.customer_name||'',담당자:r.order.manager_name||'',연락처:r.order.contact||'',배송일:r.order.ship_date||'',배송지:r.order.address||'',수령방법:r.order.receive_method||'',상품명:r.product_name_snapshot||r.kit_name||'',수량:r.quantity||0,주문상태:r.order.order_status||'',결제상태:r.order.payment_status||'',요청사항:r.order.note||''}));const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'주문내역');XLSX.writeFile(wb,'이로운과자점_주문내역.xlsx')}
+function renderRequests(){const history=window.__approvalHistory||false,source=window.__approvalSource||'all';const rows=state.requests.filter(r=>history?r.status!=='신청':r.status==='신청');$('page').innerHTML=`<div class="top"><div><h1>주문승인</h1><div class="muted">고객·ML 주문을 함께 확인합니다. 승인 후 주문현황에서 출고를 처리하세요.</div></div><button class="btn secondary" onclick="init()">새로고침</button></div>${errorBanner()}<div class="toolbar">${[['all','전체'],['customer','고객'],['ml','ML']].map(([k,n])=>`<button class="btn ${source===k?'primary':'light'}" onclick="window.__approvalSource='${k}';renderRequests()">${n}</button>`).join('')}<button class="btn ${!history?'secondary':'light'}" onclick="window.__approvalHistory=false;renderRequests()">승인대기</button><button class="btn ${history?'secondary':'light'}" onclick="window.__approvalHistory=true;renderRequests()">승인·반려 이력</button><button class="btn light" onclick="goWork('orders')">주문현황 보기</button></div><div class="panel ${source==='ml'?'hidden':''}"><h2>고객 주문 · ${rows.length}건</h2><div class="tablewrap"><table class="table"><thead><tr><th>신청일</th><th>고객</th><th>연락처</th><th>상품</th><th>배송지</th><th>상태</th><th>결정</th></tr></thead><tbody>${rows.length?rows.map(r=>`<tr><td>${dateStr(r.created_at)}</td><td>${esc(r.customer_name)}</td><td>${esc(r.contact||'')}</td><td>${(r.customer_order_request_items||[]).map(i=>esc(i.product_name_snapshot)).join('<br>')}</td><td>${esc(r.address||'')}</td><td><span class="badge ${r.status==='신청'?'warn':r.status==='승인'?'good':'danger'}">${esc(r.status)}</span></td><td style="white-space:nowrap">${r.status==='신청'?`<button class="btn primary" onclick="approveRequest('${r.id}')">주문 등록(승인)</button> <button class="btn danger" onclick="rejectRequest('${r.id}')">거절</button>`:r.status==='거절'?'<span class="muted">거절됨</span>':'<span class="muted">주문 등록됨</span>'}</td></tr>`).join(''):`<tr><td colspan="7"><div class="empty">고객 주문신청이 없습니다.</div></td></tr>`}</tbody></table></div></div><div id="partnerInline" class="${source==='customer'?'hidden':''}"><div class="panel">Google Sheets 승인대기 주문을 불러오는 중입니다.</div></div>`;if(source!=='customer')renderPartnerOrders(true)}
 async function approveRequest(id){const r=state.requests.find(x=>x.id===id);if(!r)return;try{const {data:o,error}=await db.rpc('approve_customer_order_v2',{p_request_id:id});if(error)throw error;toast('고객 주문이 내부 주문으로 등록되었습니다.');await init();route('requests')}catch(e){toast('등록 실패: '+(e.message||e))}}
 async function rejectRequest(id){const r=state.requests.find(x=>x.id===id);if(!r||r.status!=='신청')return toast('현재 상태에서는 거절할 수 없습니다.');if(!confirm('이 고객 주문신청을 거절할까요?'))return;try{const {data,error}=await db.from('customer_order_requests').update({status:'거절'}).eq('id',id).eq('status','신청').select('id').maybeSingle();if(error)throw error;if(!data)return toast('신청 상태가 변경되었습니다. 새로고침 후 다시 확인해주세요.');toast('고객 주문신청을 거절했습니다.');await init();route('requests')}catch(e){toast('거절 처리 실패: '+(e.message||e))}}
 function errorBanner(){return state.errors.length?`<div class="panel" style="border-color:#dfb66e;background:#fffaf0"><b style="color:#865d0b">일부 데이터 조회에 실패했습니다.</b><div style="margin-top:7px;font-size:13px;line-height:1.6">${state.errors.map(x=>esc(x)).join('<br>')}</div><div class="muted" style="margin-top:6px">정상 조회된 상품은 별도로 표시합니다. 목록이 0개이면 아래 안내도 확인하세요.</div></div>`:''}
@@ -596,20 +649,21 @@ async function renderPartnerOrders(embedded=false){
  const target=embedded?$('partnerInline'):$('page');
  if(!target)return;
  target.innerHTML='<div class="top"><h1>거래처 주문 승인</h1></div><div class="panel">거래처에서 입력한 주문을 불러오는 중입니다.</div>';
- const {data,error}=await db.from('partner_order_rows')
+ const {data,error}=await readPaged(()=>db.from('partner_order_rows')
   .select('id,sheet_id,source_row,order_date,ship_date,product_name,quantity,recipient,contact,address,note,status,approved_order_id,updated_at,partner_sheet_sources(partner_name)')
-  .order('updated_at',{ascending:false}).limit(500);
+  .order('updated_at',{ascending:false}).order('id'));
  if(error){target.innerHTML='<div class="top"><h1>거래처 주문 승인</h1></div><div class="panel dangertext">'+esc(error.message)+'</div>';return}
- const rows=data||[], pending=rows.filter(r=>['등록','승인대기'].includes(r.status));
+ if(!target.isConnected)return;
+ const rows=(data||[]).filter(r=>window.__approvalSource!=='ml'||r.partner_sheet_sources?.partner_name==='ML'), pending=rows.filter(r=>['등록','승인대기'].includes(r.status)).sort((a,b)=>String(a.ship_date||'9999').localeCompare(String(b.ship_date||'9999')));
  window.__partnerRows=rows; partnerSelected.clear();
  const table=pending.map(r=>'<tr><td><input type="checkbox" data-partner-id="'+esc(r.id)+'"></td><td>'+esc(r.partner_sheet_sources?.partner_name||'-')+'</td><td>'+esc(r.order_date)+'</td><td>'+esc(r.ship_date)+'</td><td>'+esc(r.recipient)+'</td><td>'+esc(r.contact)+'</td><td>'+mlProductSelector(r)+'</td><td>'+esc(r.quantity)+'</td><td>'+esc(r.address)+'</td><td>'+esc(r.note||'')+'</td><td><a class="btn light" target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/'+encodeURIComponent(r.sheet_id)+'/edit#range=A'+Number(r.source_row)+':H'+Number(r.source_row)+'">수정</a> <button class="btn danger" onclick="deleteRegisteredPartnerRow(\''+r.id+'\')">삭제</button></td></tr>').join('');
  target.innerHTML='<div class="top"><h2>Google Sheets 거래처 주문 승인</h2><button class="btn light" onclick="renderPartnerOrders('+embedded+')">새로고침</button></div>'
- +'<div class="panel"><b>등록 '+pending.length+'행</b><p class="muted">동일 거래처·주문일·발송일·수령인·연락처·주소의 상품 행만 함께 선택하세요. 동일 정보의 별도 주문은 구분하여 승인하세요.</p>'
+ +'<div class="panel '+(window.__approvalHistory?'hidden':'')+'"><b>승인대기 '+pending.length+'행</b><p class="muted">동일 거래처·주문일·발송일·수령인·연락처·주소의 상품 행만 함께 선택하세요. 동일 정보의 별도 주문은 구분하여 승인하세요.</p>'
  +'<div class="toolbar"><button class="btn primary" onclick="approveSelectedPartnerRows()">선택한 행을 한 주문으로 승인</button>'
  +'<button class="btn danger" onclick="rejectSelectedPartnerRows()">선택 반려</button></div>'
  +'<div class="tablewrap"><table class="table"><thead><tr><th>선택</th><th>거래처</th><th>주문일</th><th>발송일</th><th>수령인</th><th>연락처</th><th>상품</th><th>수량</th><th>배송지</th><th>요청</th><th>관리</th></tr></thead><tbody>'
  +(table||'<tr><td colspan="11" class="empty">현재 등록 주문이 없습니다.</td></tr>')+'</tbody></table></div></div>'
- +'<div class="panel"><b>승인 완료 / 반려 기록</b><p class="muted">ML 주문은 승인 상태에서 바로 수정·삭제할 수 있습니다.</p>'
+ +'<div class="panel '+(window.__approvalHistory?'':'hidden')+'"><b>승인 완료 / 반려 기록</b><p class="muted">ML 주문은 승인 상태에서 바로 수정·삭제할 수 있습니다.</p>'
  +'<div class="tablewrap"><table class="table"><thead><tr><th>상태</th><th>거래처</th><th>발송일</th><th>수령인</th><th>상품</th><th>운영 주문 ID</th><th>관리</th></tr></thead><tbody>'
  +(rows.filter(r=>r.status==='승인'||r.status==='반려').map(r=>'<tr><td>'+esc(r.status)+'</td><td>'+esc(r.partner_sheet_sources?.partner_name||'')+'</td><td>'+esc(r.ship_date)+'</td><td>'+esc(r.recipient)+'</td><td>'+esc(r.product_name)+'</td><td>'+esc(r.approved_order_id||'-')+'</td><td>'+(r.partner_sheet_sources?.partner_name==='ML'?'<button class="btn light" onclick="editMLPartnerRow(\''+r.id+'\')">수정</button> <button class="btn danger" onclick="deleteRegisteredPartnerRow(\''+r.id+'\')">삭제</button>':(r.status==='승인'&&r.approved_order_id?'<button class="btn light" onclick="revertPartnerApproval(\''+r.id+'\')">승인 취소 → 등록</button>':''))+'</td></tr>').join('')||'<tr><td colspan="7">처리 이력이 없습니다.</td></tr>')+'</tbody></table></div></div>';
 }
@@ -632,7 +686,7 @@ async function approveSelectedPartnerRows(){
  }else approvalCall=db.rpc('approve_partner_sheet_rows',{p_row_ids:ids});
  const {data,error}=await approvalCall;
  if(error)return toast('승인 실패: '+error.message);
- toast('주문접수 등록 완료: '+data);await loadAll();route(state.page);
+ toast('주문접수 등록 완료: '+data);await loadAll();await route(state.page);
 }
 async function rejectSelectedPartnerRows(){
  const ids=partnerIds();if(!ids.length)return toast('반려할 상품 행을 선택해주세요.');
@@ -666,8 +720,7 @@ function isMLParcelOrder(order){
  return /^ml(?:$|거래처|지사|[_\-])/i.test(String(order.customer_name||'').replace(/\s+/g,''));
 }
 function parcelOrders(details=window.__parcelDetails||{}){
- return (state.orders||[]).filter(o=>o.order_status!=='취소'&&
-  (String(o.order_source||'').trim()==='거래처시트'||String(o.receive_method||'').trim()==='택배'))
+ return (state.orders||[]).filter(isParcelEligible).filter(o=>matchesWork(o,workFilters[state.page],details))
   .filter(o=>state.page==='mlparcel'?isMLParcelOrder(o):!isMLParcelOrder(o))
   .slice().sort((a,b)=>{
    const aTracked=Boolean(String(details[a.id]?.tracking_numbers||'').trim());
@@ -680,6 +733,9 @@ function parcelOrders(details=window.__parcelDetails||{}){
 
 function reorderParcelRows(){
  if(!['parcel','mlparcel'].includes(state.page))return;
+ const visible=new Set(parcelOrders().map(o=>o.id));
+ if($('parcel-visible-count'))$('parcel-visible-count').textContent='('+visible.size+'건)';
+ document.querySelectorAll('.parcel-table tbody tr').forEach(row=>{const b=row.querySelector('[id^="parcel-save-"]');if(b&&!visible.has(b.dataset.id))row.remove();});
  for(const order of parcelOrders()){
   const row=$('parcel-save-'+order.id)?.closest('tr');
   const body=row?.parentElement;
@@ -690,7 +746,8 @@ function reorderParcelRows(){
 async function renderParcelEditor(){
  const page=$('page');
  page.innerHTML='<div class="top"><h1>송장·포장박스</h1></div><div class="panel">출고정보를 불러오는 중입니다.</div>';
- const {data,error}=await db.from('order_shipping_details').select('*');
+ const {data,error}=await readPaged(()=>db.from('order_shipping_details').select('*').order('order_id'));
+ if(!page.isConnected||!['parcel','mlparcel'].includes(state.page))return;
  if(error){page.innerHTML='<div class="panel dangertext">'+esc(error.message)+'</div>';return}
  const detail=Object.fromEntries((data||[]).map(x=>[x.order_id,x]));
  const orders=parcelOrders(detail);
@@ -699,16 +756,16 @@ async function renderParcelEditor(){
  const parcelRow=o=>{
   const d=detail[o.id]||{};
   const boxes=parcelFields.map(([key,label])=>'<label class="parcel-box-field"><span>'+esc(label)+'</span><div class="parcel-number-control"><input class="parcel-qty-input" type="number" inputmode="numeric" min="0" max="1000" step="1" id="parcel-'+key+'-'+o.id+'" aria-label="'+esc(o.order_no+' '+label)+'" value="'+esc(d[key]??0)+'"><span class="parcel-step-stack"><button type="button" class="parcel-step-btn" data-id="'+o.id+'" data-key="'+key+'" aria-label="'+esc(o.order_no+' '+label+' 1개 증가')+'" onclick="stepParcelBox(this.dataset.id,this.dataset.key,1)">+</button><button type="button" class="parcel-step-btn" data-id="'+o.id+'" data-key="'+key+'" aria-label="'+esc(o.order_no+' '+label+' 1개 감소')+'" onclick="stepParcelBox(this.dataset.id,this.dataset.key,-1)">−</button></span></div></label>').join('');
-  return '<tr><td><div class="parcel-order-number"><b>'+esc(o.order_no)+'</b><button type="button" class="parcel-detail-btn" data-id="'+o.id+'" aria-label="'+esc(o.order_no)+' 주문 상세보기" onclick="openParcelOrderDetail(this.dataset.id)">상세</button><button type="button" class="parcel-photo-btn" data-id="'+o.id+'" title="송장 입력 전에도 사진 첨부 가능" aria-label="'+esc(o.order_no)+' 주문 사진 첨부" onclick="openOrderPhotoManager(this.dataset.id)">사진 +</button><span class="parcel-photo-count" id="parcel-photo-count-'+o.id+'" aria-label="첨부사진 수">확인 중</span></div></td><td>'+esc(o.ship_date||'')+'</td><td class="parcel-address">'+esc(o.address||'미입력')+'</td>'
+  return '<tr><td><div class="parcel-order-number"><b>'+esc(o.order_no)+'</b><button type="button" class="parcel-detail-btn" data-id="'+o.id+'" aria-label="'+esc(o.order_no)+' 주문 상세보기" onclick="openParcelOrderDetail(this.dataset.id)">상세</button><button type="button" class="parcel-photo-btn" data-id="'+o.id+'" title="송장 입력 전에도 사진 첨부 가능" aria-label="'+esc(o.order_no)+' 주문 사진 첨부" onclick="openOrderPhotoManager(this.dataset.id)">사진 +</button><span class="parcel-photo-count" id="parcel-photo-count-'+o.id+'" aria-label="첨부사진 수">확인 중</span></div><div class="mini">'+esc(o.ship_date||'')+'</div></td><td class="parcel-address"><b>'+esc(o.manager_name||'수령인 미입력')+'</b><div class="mini">'+esc(o.customer_name||'')+'</div><div>'+esc(o.address||'미입력')+'</div></td><td class="parcel-products">'+(o.order_items||[]).map(i=>'<div>'+esc(i.product_name_snapshot||i.kit_name||'상품명 없음')+' <b>× '+fmt(i.quantity)+'</b></div>').join('')+'</td>'
    +'<td><div class="parcel-track-save"><input class="parcel-track-input" id="parcel-track-'+o.id+'" aria-label="'+esc(o.order_no+' 송장번호')+'" placeholder="쉼표로 여러 개 입력" maxlength="1000" value="'+esc(d.tracking_numbers||'')+'"><button class="btn primary" id="parcel-save-'+o.id+'" data-id="'+o.id+'" onclick="saveInlineParcel(this.dataset.id)">저장</button></div></td>'
    +'<td><div class="parcel-box-grid">'+boxes+'</div></td></tr>';
  };
- const section=(title,group)=>'<section class="panel"><h2>'+title+' <span class="muted">('+group.length+'건)</span></h2>'
-  +'<div class="tablewrap"><table class="table parcel-table"><thead><tr><th>주문번호</th><th>발송일</th><th>배송지</th><th>송장번호</th>'+heads+'</tr></thead><tbody>'
+ const section=(title,group)=>'<section class="panel"><h2>'+title+' <span class="muted" id="parcel-visible-count">('+group.length+'건)</span></h2>'
+  +'<div class="tablewrap"><table class="table parcel-table"><thead><tr><th>주문 · 발송일</th><th>수령인 · 배송지</th><th>상품 · 수량</th><th>송장번호</th>'+heads+'</tr></thead><tbody>'
   +(group.map(parcelRow).join('')||'<tr><td colspan="5"><div class="empty">주문이 없습니다.</div></td></tr>')+'</tbody></table></div></section>';
  page.innerHTML='<div class="top"><div><h1>'+ (state.page==='mlparcel'?'ML 송장·포장박스':'송장·포장박스') +'</h1><div class="muted">'+(state.page==='mlparcel'?'ML 주문만 표시합니다.':'일반 택배·기타 거래처 주문을 표시합니다. ML 주문은 별도 메뉴에서 확인하세요.')+' 송장 미입력 주문이 먼저 표시됩니다.</div></div><div class="toolbar"><button class="btn secondary" onclick="renderParcelEditor()">새로고침</button><button class="btn primary" id="parcel-export-xlsx" onclick="exportParcelDetails()">사진 포함 엑셀 다운로드</button></div></div>'
   +'<p class="muted">송장·박스 변경 후 해당 행의 저장을 누르세요. 박스 수량은 + / − 버튼으로 조절하며 여러 송장번호는 쉼표(,)로 구분합니다.</p>'
-  +section(state.page==='mlparcel'?'ML 거래처 송장·포장박스':'일반 택배·기타 거래처 송장·포장박스',orders);
+  +workFilterBar(state.page)+section(state.page==='mlparcel'?'ML 거래처 송장·포장박스':'일반 택배·기타 거래처 송장·포장박스',orders);
  if(orders.length)void refreshParcelPhotoCounts(orders);
 }
 
@@ -1021,4 +1078,5 @@ async function saveMLPartnerRow(){
 <script src="scripts/order_documents.js"></script>
 
 </body></html>
+
 
