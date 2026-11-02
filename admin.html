@@ -206,7 +206,8 @@ function koreaDay(offset=0,now=new Date()){
  return new Date(Date.UTC(value('year'),value('month')-1,value('day')+offset)).toISOString().slice(0,10);
 }
 function isOpenOrder(o){return ['주문접수','준비중'].includes(o.order_status||'주문접수');}
-function isParcelEligible(o){return o.order_status!=='취소'&&String(o.receive_method||'').trim()!=='방문수령'&&(String(o.receive_method||'').trim()==='택배'||o.order_source==='거래처시트');}
+const SHIPPING_ENTRY_START='2026-11-02';
+function isParcelEligible(o){return o.order_status!=='취소'&&String(o.receive_method||'').trim()==='택배'&&String(o.ship_date||'')>=SHIPPING_ENTRY_START;}
 function matchesWork(o,f={},details=window.__parcelDetails||{}){
  return (!f.date||o.ship_date===f.date)&&(!f.overdue||(o.ship_date&&o.ship_date<koreaDay()&&isOpenOrder(o)))&&(!f.open||isOpenOrder(o))&&(!f.missing||!String(details[o.id]?.tracking_numbers||'').trim())&&(!f.id||o.id===f.id);
 }
@@ -722,14 +723,15 @@ function isMLParcelOrder(order){
 function parcelOrders(details=window.__parcelDetails||{}){
  const today=koreaDay();
  return (state.orders||[]).filter(isParcelEligible)
-  .filter(o=>!o.ship_date||String(o.ship_date)>=today)
+  .filter(o=>String(o.ship_date)>=today||!String(details[o.id]?.tracking_numbers||'').trim())
   .filter(o=>matchesWork(o,workFilters[state.page],details))
   .filter(o=>state.page==='mlparcel'?isMLParcelOrder(o):!isMLParcelOrder(o))
   .slice().sort((a,b)=>{
-   const dateOrder=String(a.ship_date||'9999-12-31').localeCompare(String(b.ship_date||'9999-12-31'));
+   const pastOrder=Number(String(a.ship_date)<today)-Number(String(b.ship_date)<today);
+   const dateOrder=String(a.ship_date).localeCompare(String(b.ship_date));
    const aTracked=Boolean(String(details[a.id]?.tracking_numbers||'').trim());
    const bTracked=Boolean(String(details[b.id]?.tracking_numbers||'').trim());
-   return dateOrder||Number(aTracked)-Number(bTracked)||
+   return pastOrder||dateOrder||Number(aTracked)-Number(bTracked)||
     String(a.order_no||'').localeCompare(String(b.order_no||''));
   });
 }
@@ -766,7 +768,7 @@ async function renderParcelEditor(){
  const section=(title,group)=>'<section class="panel"><h2>'+title+' <span class="muted" id="parcel-visible-count">('+group.length+'건)</span></h2>'
   +'<div class="tablewrap"><table class="table parcel-table"><thead><tr><th>주문 · 발송일</th><th>수령인 · 배송지</th><th>상품 · 수량</th><th>송장번호</th>'+heads+'</tr></thead><tbody>'
   +(group.map(parcelRow).join('')||'<tr><td colspan="5"><div class="empty">주문이 없습니다.</div></td></tr>')+'</tbody></table></div></section>';
- page.innerHTML='<div class="top"><div><h1>'+ (state.page==='mlparcel'?'ML 송장·포장박스':'송장·포장박스') +'</h1><div class="muted">'+(state.page==='mlparcel'?'ML 주문만 표시합니다.':'일반 택배·기타 거래처 주문을 표시합니다. ML 주문은 별도 메뉴에서 확인하세요.')+' 오늘 이후 발송 주문을 가까운 날짜순으로 표시합니다. 같은 날짜는 송장 미입력 주문이 먼저 표시됩니다.</div></div><div class="toolbar"><button class="btn secondary" onclick="renderParcelEditor()">새로고침</button><button class="btn primary" id="parcel-export-xlsx" onclick="exportParcelDetails()">사진 포함 엑셀 다운로드</button></div></div>'
+ page.innerHTML='<div class="top"><div><h1>'+ (state.page==='mlparcel'?'ML 송장·포장박스':'송장·포장박스') +'</h1><div class="muted">'+(state.page==='mlparcel'?'ML 주문만 표시합니다.':'일반 택배·기타 거래처 주문을 표시합니다. ML 주문은 별도 메뉴에서 확인하세요.')+' 2026-11-02 발송분부터 택배 주문만 관리합니다. 오늘·예정 주문은 가까운 날짜순, 지난 날짜의 송장 미입력 건은 맨 아래에 표시합니다.</div></div><div class="toolbar"><button class="btn secondary" onclick="renderParcelEditor()">새로고침</button><button class="btn primary" id="parcel-export-xlsx" onclick="exportParcelDetails()">사진 포함 엑셀 다운로드</button></div></div>'
   +'<p class="muted">송장·박스 변경 후 해당 행의 저장을 누르세요. 박스 수량은 + / − 버튼으로 조절하며 여러 송장번호는 쉼표(,)로 구분합니다.</p>'
   +workFilterBar(state.page)+section(state.page==='mlparcel'?'ML 거래처 송장·포장박스':'일반 택배·기타 거래처 송장·포장박스',orders);
  if(orders.length)void refreshParcelPhotoCounts(orders);
