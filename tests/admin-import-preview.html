@@ -1,0 +1,85 @@
+<!doctype html><html lang="ko"><meta charset="utf-8"><title>주문 업로드 검증</title><script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script><style>
+:root{--p:#315c4a;--p2:#477762;--bg:#f4f7f4;--card:#fff;--text:#223028;--muted:#6c7771;--line:#dfe7e1;--danger:#b9423e;--warn:#9a6a00;--shadow:0 8px 24px rgba(32,55,44,.07)}*{box-sizing:border-box}html,body{margin:0;min-height:100%;font-family:-apple-system,BlinkMacSystemFont,"Noto Sans KR",Arial,sans-serif;background:var(--bg);color:var(--text)}button,input,textarea,select{font:inherit}button{cursor:pointer}.hidden{display:none!important}.layout{min-height:100vh}.side{position:fixed;left:0;top:0;bottom:0;width:230px;background:#fff;border-right:1px solid var(--line);padding:22px 14px;z-index:20}.logo{font-weight:900;font-size:20px;color:var(--p);padding:8px 10px 18px}.logo small{display:block;color:var(--muted);font-size:11px;font-weight:500;margin-top:5px}.nav button{display:block;width:100%;border:0;background:transparent;color:#55625b;text-align:left;padding:12px;border-radius:10px;margin:3px 0;font-weight:700}.nav button.active,.nav button:hover{background:#edf4ef;color:var(--p)}.side .foot{position:absolute;left:14px;right:14px;bottom:18px;color:var(--muted);font-size:11px;padding:10px}.main{margin-left:230px;padding:28px;max-width:1500px}.top{display:flex;justify-content:space-between;align-items:center;gap:14px;margin-bottom:18px}.top h1{font-size:26px;margin:0}.btn{border:0;border-radius:10px;padding:11px 15px;min-height:42px;font-weight:800}.primary{background:var(--p);color:#fff}.secondary{background:#edf2ee;color:var(--p)}.danger{background:#fae9e8;color:var(--danger)}.light{background:#fff;color:#455249;border:1px solid var(--line)}.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.stat,.panel{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow)}.stat{padding:18px}.stat .label{font-size:12px;color:var(--muted);font-weight:700}.stat .num{font-size:28px;font-weight:900;margin-top:6px}.panel{padding:18px;margin-top:15px}.between{display:flex;justify-content:space-between;align-items:center;gap:12px}.muted{color:var(--muted);font-size:13px}.formgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}.formgrid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.field label{display:block;font-size:12px;font-weight:800;color:#68736d;margin-bottom:6px}.field input,.field textarea,.field select{width:100%;border:1px solid #d2ddd5;border-radius:9px;background:#fff;padding:11px 12px;outline:none}.field textarea{min-height:90px;resize:vertical}.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.toolbar input,.toolbar select{border:1px solid var(--line);background:#fff;border-radius:9px;padding:10px 11px;min-height:42px}.tablewrap{overflow:auto;border:1px solid var(--line);border-radius:11px;margin-top:12px}.table{width:100%;border-collapse:collapse;min-width:760px}.table th,.table td{padding:11px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;font-size:13px}.table th{background:#f7faf7;color:#67736c;white-space:nowrap}.table tr:last-child td{border-bottom:0}.badge{display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;font-size:11px;font-weight:800;background:#eef3ef;color:#52615a}.badge.warn{background:#fff4d9;color:var(--warn)}.badge.danger{background:#fce9e8;color:var(--danger)}.badge.good{background:#e9f5ee;color:#236544}.kitrow{display:grid;grid-template-columns:minmax(0,1fr) 120px 42px;gap:8px;align-items:end;margin-bottom:9px}.mini{font-size:11px;color:var(--muted)}.product-card{display:grid;grid-template-columns:1fr auto;gap:12px;padding:14px;border:1px solid var(--line);border-radius:12px;background:#fff;margin-top:9px}.modal{position:fixed;inset:0;background:rgba(19,28,23,.45);display:flex;align-items:center;justify-content:center;padding:20px;z-index:50}.modalbox{width:min(680px,100%);max-height:90vh;overflow:auto;background:#fff;border-radius:16px;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.2)}.toast{position:fixed;right:20px;bottom:20px;background:#26352e;color:#fff;padding:12px 15px;border-radius:10px;z-index:80;box-shadow:var(--shadow)}.login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}.loginbox{width:min(420px,100%);background:#fff;border:1px solid var(--line);border-radius:18px;padding:28px;box-shadow:var(--shadow)}.loginbox h1{margin:0;color:var(--p);font-size:25px}.loginbox p{color:var(--muted);font-size:13px}.empty{padding:32px 12px;text-align:center;color:var(--muted)}.qty{font-weight:900}.right{text-align:right}.calendar{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-top:12px}.day{background:#fff;border:1px solid var(--line);border-radius:10px;min-height:110px;padding:9px}.day .n{font-weight:900}.day .count{font-size:11px;color:var(--p);margin-top:6px}.day.mutedday{background:#fafcfa;color:#a1aaa4}.dangertext{color:var(--danger);font-weight:800}.green{color:var(--p);font-weight:800}@media(max-width:1050px){.grid4{grid-template-columns:repeat(2,1fr)}.grid3,.formgrid3{grid-template-columns:1fr 1fr}}@media(max-width:760px){.side{position:static;width:auto;height:auto;border-right:0;border-bottom:1px solid var(--line);padding:10px}.side .foot{display:none}.nav{display:flex;overflow:auto;gap:5px}.nav button{white-space:nowrap}.main{margin-left:0;padding:16px}.top h1{font-size:21px}.grid4,.grid3,.formgrid,.formgrid3{grid-template-columns:1fr}.table{min-width:700px}.kitrow{grid-template-columns:1fr 105px 40px}.calendar{gap:4px}.day{min-height:88px;padding:6px}}
+
+/* Long navigation: keep product and stock controls visible, scroll all menu items safely. */
+@media(min-width:761px){.side{display:flex;flex-direction:column;overflow:hidden}.side .logo{flex:0 0 auto}.side .nav{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;scrollbar-gutter:stable;padding-right:3px}.side .foot{position:static;flex:0 0 auto;margin-top:6px;padding:10px 0 0;border-top:1px solid var(--line)}}
+/* 재고 즉시 수정: 기존 팝업 없이 품목명 옆에서 수량 수정 */
+.stock-inline{display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-width:330px}.stock-inline b{margin-right:4px}.stock-qty-input{width:102px;min-height:42px;border:1px solid #cbd8cf;border-radius:9px;padding:8px;font:inherit}.stock-qty-input:focus{outline:2px solid #477762;outline-offset:1px}.stock-inline button{min-height:38px;padding:8px 12px}.stock-inline button:disabled{opacity:.6;cursor:wait}.stock-qty-control{display:inline-flex;align-items:stretch;height:42px}.stock-qty-control .stock-qty-input{border-radius:9px 0 0 9px;width:96px;height:42px;min-height:42px;appearance:textfield;-moz-appearance:textfield}.stock-qty-control .stock-qty-input::-webkit-outer-spin-button,.stock-qty-control .stock-qty-input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}.stock-step-stack{display:flex;flex-direction:column;width:32px;height:42px}.stock-step-stack .stock-step-btn{width:32px;min-width:32px;min-height:0;height:21px;padding:0;border:1px solid #cad8ce;background:#f1f6f2;color:#315c4a;font-size:17px;font-weight:800;line-height:19px}.stock-step-stack .stock-step-btn:first-child{border-radius:0 8px 0 0;border-bottom:0}.stock-step-stack .stock-step-btn:last-child{border-radius:0 0 8px 0}.stock-step-btn:active{background:#d9e8de}.stock-step-btn:focus-visible{outline:2px solid #315c4a;outline-offset:2px}.stock-step-btn:disabled{opacity:.55;cursor:wait}
+
+.parcel-table{min-width:1390px}.parcel-table td{vertical-align:middle}.parcel-track-input{width:225px;min-height:40px;padding:7px 10px;border:1px solid #ced9d1;border-radius:8px}.parcel-number-control{display:inline-flex;align-items:stretch;height:40px;white-space:nowrap}.parcel-qty-input{width:65px;min-width:65px;height:40px;min-height:40px;padding:7px;border:1px solid #ced9d1;border-radius:8px 0 0 8px;appearance:textfield;-moz-appearance:textfield}.parcel-qty-input::-webkit-inner-spin-button,.parcel-qty-input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}.parcel-step-stack{display:flex;flex-direction:column;width:27px;height:40px}.parcel-step-btn{flex:1;min-height:0;width:27px;padding:0;border:1px solid #ced9d1;background:#eff5f0;color:#315c4a;font-size:15px;font-weight:800;line-height:17px;cursor:pointer}.parcel-step-btn:first-child{border-radius:0 7px 0 0;border-bottom:0}.parcel-step-btn:last-child{border-radius:0 0 7px 0}.parcel-step-btn:hover{background:#dcebdd}.parcel-step-btn:focus-visible{outline:2px solid #315c4a;outline-offset:1px}
+
+.order-photo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(115px,1fr));gap:10px}.order-photo-item{padding:8px;border:1px solid #dce7de;border-radius:10px;min-width:0}.order-photo-item img{display:block;width:100%;height:100px;object-fit:cover;border-radius:6px}.order-photo-item .photo-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:7px 0}.order-photo-item button{padding:6px 9px;min-height:30px}.modalbox{width:min(850px,100%)}
+
+.parcel-detail-btn{border:1px solid #cadbd1;background:#fff;color:#315c4a;border-radius:6px;font-weight:700;font-size:11px;line-height:1.2;padding:5px 8px;cursor:pointer}.parcel-detail-btn:hover{background:#edf4ef}.parcel-detail-btn:focus-visible{outline:2px solid #315c4a;outline-offset:2px}
+.parcel-order-number{display:flex;align-items:center;gap:7px;white-space:nowrap}.parcel-photo-btn{border:1px solid #cbdcd0;background:#f0f7f2;color:#315c4a;border-radius:6px;font:700 11px/1.2 inherit;padding:5px 6px;min-width:45px;cursor:pointer}.parcel-photo-btn:hover{background:#dceee3}.parcel-photo-btn:focus-visible{outline:2px solid #315c4a;outline-offset:2px}
+.parcel-photo-count{font-size:11px;font-weight:700;white-space:nowrap;color:#5f7065;min-width:28px;text-align:center}
+
+
+.modalbox:has(#orderPhotoInput){width:min(520px,100%)}
+.order-photo-file{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--line)}.order-photo-file .photo-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}.order-photo-file .btn{min-height:30px;padding:5px 10px}
+/* Wide order and shipping tables: show a synced horizontal scrollbar above the table. */
+.main,#page,.panel{min-width:0}
+.tablewrap{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-color:#87a895 #e7eee9;scrollbar-width:auto}
+.table-scroll-top{height:17px;max-width:100%;overflow-x:scroll;overflow-y:hidden;overscroll-behavior-x:contain;scrollbar-color:#729b83 #e7eee9;scrollbar-width:auto;border-radius:6px;margin-top:12px}
+.table-scroll-top[hidden]{display:none!important}
+.table-scroll-top::-webkit-scrollbar,.tablewrap::-webkit-scrollbar{height:13px}
+.table-scroll-top::-webkit-scrollbar-track,.tablewrap::-webkit-scrollbar-track{background:#e7eee9;border-radius:6px}
+.table-scroll-top::-webkit-scrollbar-thumb,.tablewrap::-webkit-scrollbar-thumb{background:#82a58f;border-radius:6px;border:2px solid #e7eee9}
+.table-scroll-top::-webkit-scrollbar-thumb:hover,.tablewrap::-webkit-scrollbar-thumb:hover{background:#4c8064}
+.table-scroll-top + .tablewrap{margin-top:5px}
+
+
+/* Compact parcel editor: wrap addresses and keep save beside tracking. */
+.parcel-table{min-width:0;table-layout:fixed}
+.parcel-table th,.parcel-table td{padding:9px 6px}
+.parcel-table th:nth-child(1){width:122px}
+.parcel-table th:nth-child(2){width:82px}
+.parcel-table th:nth-child(4){width:220px}
+.parcel-table th:nth-child(5){width:210px}
+.parcel-address{white-space:normal;overflow-wrap:anywhere;word-break:normal;line-height:1.5}
+.parcel-order-number{flex-wrap:wrap;white-space:normal;gap:5px}
+.parcel-track-save{display:flex;align-items:center;gap:5px}
+.parcel-track-save .parcel-track-input{width:0;min-width:0;flex:1}
+.parcel-track-save .btn{flex:none;padding:7px 9px;min-height:40px;font-size:12px;white-space:nowrap}
+.parcel-box-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px 5px}
+.parcel-box-field{display:flex;flex-direction:column;gap:3px;min-width:0;font-size:10px}
+.parcel-box-field>span{white-space:normal;line-height:1.3}
+.parcel-box-field .parcel-number-control{width:100%;height:36px}
+.parcel-box-field .parcel-qty-input{width:0;min-width:0;flex:1;height:36px;min-height:36px;padding:4px}
+.parcel-box-field .parcel-step-stack{width:22px;height:36px}
+.parcel-box-field .parcel-step-btn{width:22px}
+.main:has(.parcel-table){max-width:none;padding:20px}
+@media(max-width:1100px){
+ .parcel-table th:nth-child(1){width:102px}
+ .parcel-table th:nth-child(2){width:74px}
+ .parcel-table th:nth-child(4){width:185px}
+ .parcel-table th:nth-child(5){width:144px}
+ .parcel-box-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:760px){
+ .parcel-table,.parcel-table tbody,.parcel-table tr,.parcel-table td{display:block;width:100%}
+ .parcel-table thead{display:none}
+ .parcel-table tr{padding:10px;border-bottom:2px solid var(--line)}
+ .parcel-table td{border:0;padding:4px 0}
+ .parcel-table td:nth-child(2)::before{content:'발송일: ';color:var(--muted)}
+ .parcel-table td:nth-child(3)::before{content:'배송지: ';color:var(--muted)}
+ .parcel-box-grid{grid-template-columns:repeat(5,minmax(0,1fr))}
+ .parcel-track-save .parcel-track-input{min-width:0}
+ .main:has(.parcel-table){padding:12px}
+}
+
+
+/* Daily workflow: shared order information and compact actions. */
+.home-logo{border:0;background:transparent;text-align:left;cursor:pointer}
+.work-card{text-align:left;color:var(--text);display:flex;flex-direction:column;gap:8px;min-height:140px}
+.work-card:hover{border-color:var(--p);background:#f4faf5}.work-card:focus-visible{outline:3px solid var(--p)}
+.work-filter{margin:14px 0}.work-filter label{font-size:13px;color:var(--muted)}
+.parcel-products,.parcel-address{overflow-wrap:anywhere;white-space:normal}.parcel-products>div+div{margin-top:6px}
+.parcel-table th:nth-child(2){width:24%}.parcel-table th:nth-child(3){width:auto}
+@media(max-width:760px){.parcel-table td:nth-child(2)::before{content:'수령인 · 배송지: '}.parcel-table td:nth-child(3)::before{content:'상품 · 수량: '}}
+</style><body><p>검증 전용 화면 · 실제 주문을 저장하지 않습니다.</p><main id="page" style="padding:20px"></main><p id="toast" role="status"></p><script>
+const $=id=>document.getElementById(id);const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const state={products:[{id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',name:'화과자',active:true,inventory_item_id:'i',deduction_qty:1},{id:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',name:'과자집',active:true,inventory_item_id:'i',deduction_qty:1}]};
+const koreaDay=()=> '2026-11-03',toast=s=>$('toast').textContent=s,init=async()=>{},route=()=>{};
+const receipts=new Map();const db={rpc:async(name,p)=>{if(receipts.has(p.p_file_hash))return {data:{ok:true,already_imported:true}};if(p.p_commit){receipts.set(p.p_file_hash,true);return {data:{ok:true,created:p.p_orders.length}}}return {data:{ok:true,ready:true,duplicates:[]}}}};
+</script><script src="../scripts/admin_order_import_core.js?v=20261103"></script><script src="../scripts/admin_order_import.js?v=20261103"></script><script>renderOrderUpload();</script></body></html>
