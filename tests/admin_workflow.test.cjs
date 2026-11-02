@@ -1,0 +1,35 @@
+const fs=require('fs'),vm=require('vm'),assert=require('node:assert/strict');
+const html=fs.readFileSync(process.argv[2]||'admin.html','utf8');
+const scripts=[...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)].map(m=>m[1]).filter(Boolean);
+scripts.forEach(s=>new vm.Script(s));
+const elements=new Map();const el=id=>{if(!elements.has(id))elements.set(id,{innerHTML:'',textContent:'',value:'',isConnected:true,classList:{add(){},remove(){}},addEventListener(){},querySelectorAll(){return []}});return elements.get(id)};
+let tables={},rpcCalls=0,confirmValue=true;
+function query(table){let from=0,to=1e9;const q={select(){return q},order(){return q},in(){return q},eq(){return q},is(){return q},limit(){return q},range(a,b){from=a;to=b;return q},then(resolve,reject){return Promise.resolve({data:(tables[table]||[]).slice(from,to+1),count:(tables[table]||[]).length,error:null}).then(resolve,reject)}};return q;}
+const db={from:query,rpc:async()=>{rpcCalls++;return {data:true}},auth:{onAuthStateChange(){},getSession:async()=>({data:{session:null}})}};
+const c={console,Intl,Date,Map,Set,WeakMap,Promise,Number,String,Array,Math,JSON,Object,RegExp,Error,setTimeout,clearTimeout,confirm:()=>confirmValue,supabase:{createClient:()=>db},document:{getElementById:el,querySelectorAll:()=>[],createElement:()=>el('new')},MutationObserver:class{observe(){}},requestAnimationFrame:()=>0};c.window=c;c.scrollY=0;c.scrollTo=()=>{};c.addEventListener=()=>{};
+vm.createContext(c);scripts.forEach(s=>vm.runInContext(s,c));
+const run=s=>vm.runInContext(s,c),plain=x=>JSON.parse(JSON.stringify(x));
+(async()=>{
+ assert.equal(run("koreaDay(0,new Date('2026-11-01T15:01:00Z'))"),'2026-11-02');
+ assert.equal(run("koreaDay(1,new Date('2026-12-31T16:00:00Z'))"),'2027-01-02');
+ assert.deepEqual(plain(run('menus.map(x=>x[0])')),['requests','calendar','orders','parcel','mlparcel','prep','shipped','inventory','products','settings']);
+ run(`state.orders=[{id:'a',order_no:'1',ship_date:koreaDay(),order_status:'주문접수',receive_method:'택배',customer_name:'일반기관',manager_name:'받는사람',address:'주소',order_items:[{product_name_snapshot:'화과자',quantity:22}]},{id:'b',order_no:'2',ship_date:koreaDay(),order_status:'준비중',receive_method:'택배',customer_name:'ML_기관',order_source:'거래처시트',order_items:[]},{id:'c',order_no:'3',ship_date:koreaDay(),order_status:'주문접수',receive_method:'방문수령',order_source:'거래처시트',customer_name:'ML_방문',order_items:[]},{id:'d',ship_date:koreaDay(),order_status:'출고완료',receive_method:'택배'},{id:'e',ship_date:koreaDay(-1),order_status:'준비중',receive_method:'택배'},{id:'f',ship_date:koreaDay(),order_status:'취소',receive_method:'택배'}];window.__parcelDetails={a:{tracking_numbers:'123'}};`);
+ assert.deepEqual(plain(run('state.orders.filter(isParcelEligible).map(o=>o.id)')),['a','b','d','e']);
+ assert.deepEqual(plain(run("state.orders.filter(o=>isParcelEligible(o)&&matchesWork(o,{date:koreaDay(),open:true,missing:true})).map(o=>o.id)")),['b']);
+ assert.deepEqual(plain(run('state.orders.filter(o=>matchesWork(o,{overdue:true})).map(o=>o.id)')),['e']);
+ run("state.page='mlparcel';workFilters.mlparcel={date:koreaDay(),open:true,missing:true}");assert.deepEqual(plain(run('parcelOrders().map(o=>o.id)')),['b']);
+ run("state.page='orders';workFilters.orders={date:koreaDay(),open:true}");assert.deepEqual(plain(run('visibleOrders().map(o=>o.id)')),['a','b','c']);
+ tables.order_shipping_details=[{order_id:'a',tracking_numbers:'123'}];
+ await run('renderOrders()');assert.match(el('page').innerHTML,/출고완료<\/button>/);assert.doesNotMatch(el('page').innerHTML,/shipOrder\('d'\)/);
+ run("state.page='parcel';workFilters.parcel={id:'a'};refreshParcelPhotoCounts=async()=>{}");await run('renderParcelEditor()');assert.match(el('page').innerHTML,/받는사람/);assert.match(el('page').innerHTML,/화과자 <b>× 22/);assert.match(el('page').innerHTML,/수령인 · 배송지/);
+ run("state.page='requests';state.requests=[{id:'r1',customer_name:'신청고객',status:'신청',customer_order_request_items:[]},{id:'r2',customer_name:'승인고객',status:'승인',customer_order_request_items:[]}];window.__approvalSource='customer';window.__approvalHistory=false;renderRequests()");assert.match(el('page').innerHTML,/신청고객/);assert.doesNotMatch(el('page').innerHTML,/승인고객/);
+ run('window.__approvalHistory=true;renderRequests()');assert.match(el('page').innerHTML,/승인고객/);assert.doesNotMatch(el('page').innerHTML,/신청고객/);
+ tables.partner_order_rows=[{id:'p1',status:'등록',partner_sheet_sources:{partner_name:'ML'},product_name:'화과자'},{id:'p2',status:'승인',partner_sheet_sources:{partner_name:'ML'},product_name:'화과자'}];
+ run("window.__approvalSource='ml';window.__approvalHistory=false;mlProductSelector=()=>'<select></select>'");await run('renderPartnerOrders(true)');assert.match(el('partnerInline').innerHTML,/승인대기 1행/);assert.match(el('partnerInline').innerHTML,/panel hidden.*승인 완료/);
+ run("window.__approvalHistory=true");await run('renderPartnerOrders(true)');assert.match(el('partnerInline').innerHTML,/panel hidden.*승인대기/);assert.match(el('partnerInline').innerHTML,/editMLPartnerRow/);
+ tables.pages=Array.from({length:1001},(_,id)=>({id}));const paged=await run("readPaged(()=>db.from('pages').select('*'))");assert.equal(paged.data.length,1001);
+ run("state.page='dashboard'");await run('renderDashboard()');assert.match(el('home-shipping').innerHTML,/ML 1건/);assert.match(el('home-shipping').innerHTML,/일반 0건/);assert.match(el('page').innerHTML,/openCalendarDay/);
+ run('window.__cal=new Date(2020,0,1)');await run("openCalendarDay('2026-11-02')");assert.equal(run('window.__cal.getFullYear()'),2026);assert.equal(run('window.__cal.getMonth()'),10);assert.match(el('modalBox').innerHTML,/2026-11-02 주문 내역/);
+ run('init=async()=>{};loadAll=async()=>{};route=async()=>{};closeModal=()=>{};toast=()=>{}');confirmValue=false;await run("shipOrder('a')");assert.equal(rpcCalls,0);confirmValue=true;await run("Promise.all([shipOrder('a'),shipOrder('a')])");assert.equal(rpcCalls,1);await run("shipOrder('d')");assert.equal(rpcCalls,1);
+ console.log('PASS: timezone boundaries, menu order, filters/count agreement, pickup exclusion, parcel fields, approval modes, pagination, shipment confirmation and duplicate-click guard');
+})().catch(e=>{console.error(e);process.exitCode=1});
