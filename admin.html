@@ -411,6 +411,14 @@ async function saveEditedOrder(){
   quantity:Number(row.querySelector('.edit-order-qty').value)}));
  if(!items.length||items.length>100||items.some(i=>!Number.isInteger(i.quantity)||i.quantity<1||i.quantity>1000||(!i.item_id&&!i.product_id)))
   return toast('상품을 선택하고 수량을 1~1000개의 정수로 입력해주세요.');
+ const selectedNames=new Set();
+ for(const item of items){
+  const original=(state.orders.find(o=>o.id===draft.id)?.order_items||[]).find(i=>String(i.id)===String(item.item_id));
+  const unchanged=original&&String(original.product_id||'')===String(item.product_id||'');
+  const name=unchanged?original.kit_name:state.products.find(p=>String(p.id)===String(item.product_id))?.name;
+  if(name&&selectedNames.has(name))return toast('같은 상품이 여러 줄에 선택되어 있습니다. 상품별로 한 줄만 남기고 수량을 합쳐주세요.');
+  if(name)selectedNames.add(name);
+ }
  const button=$('edit-order-save');draft.busy=true;button.disabled=true;button.textContent='저장 중';
  try{
   const {data,error}=await db.rpc('admin_update_order_v2',{p_order_id:draft.id,p_expected_updated_at:draft.updated_at,p_fields:fields,p_items:items});
