@@ -73,6 +73,7 @@ function appendMLOrderControls(card,sourceRow,r){
  const label=document.createElement('p');label.className='muted';
  label.textContent=!state?'동기화 대기':state.order_status==='출고완료'?'출고완료':state.status==='승인'?'승인 · '+(state.order_status||'주문접수'):['등록','승인대기'].includes(state.status)?'등록':state.status;
  card.appendChild(label);
+ if(state?.readonly_direct){const note=document.createElement('p');note.className='muted';note.textContent='관리자 등록 ML 주문 · 조회 전용';card.appendChild(note);return;}
  const registered=state&&['등록','승인대기'].includes(state.status);
  const locked=(data.lockedSourceRows||[]).includes(sourceRow);
  const approvedEditable=state?.status==='승인'&&['주문접수','준비중'].includes(state.order_status);
