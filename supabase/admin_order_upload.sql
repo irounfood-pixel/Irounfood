@@ -14,7 +14,7 @@ CREATE OR REPLACE FUNCTION public.import_admin_orders_v1(
 DECLARE g jsonb; item jsonb; normalized jsonb:='[]'; n jsonb; items jsonb;
  d date; sd date; qty integer; pid uuid; product public.products%rowtype;
  idx integer:=0; total_items integer:=0; dup jsonb:='[]'; matches jsonb; prior jsonb;
- token text; existing jsonb; ids jsonb:='[]'; oid uuid; method text;
+ token text; existing jsonb; ids jsonb:='[]'; oid uuid; method text; partner text;
 BEGIN
  IF NOT private.is_admin() THEN RAISE EXCEPTION '관리자 권한이 필요합니다.'; END IF;
  IF p_file_hash IS NULL OR p_file_hash !~ '^[0-9a-f]{64}$' THEN RAISE EXCEPTION '파일을 다시 선택해 주세요.'; END IF;
@@ -29,6 +29,8 @@ BEGIN
   d:=coalesce(nullif(g->>'order_date','')::date,(now() AT TIME ZONE 'Asia/Seoul')::date);
   sd:=nullif(g->>'ship_date','')::date;
   method:=coalesce(nullif(btrim(g->>'receive_method'),''),'방문수령');
+  partner:=coalesce(g->>'partner_type','해당없음');
+  IF partner NOT IN ('해당없음','ML') THEN RAISE EXCEPTION '%번 주문: 거래처는 해당없음 또는 ML로 선택하세요.',idx; END IF;
   IF sd IS NULL OR coalesce(btrim(g->>'customer_name'),'')='' OR coalesce(btrim(g->>'address'),'')='' THEN
    RAISE EXCEPTION '%번 주문: 고객명, 발송일, 배송지를 확인하세요.',idx;
   END IF;
@@ -53,7 +55,7 @@ BEGIN
   SELECT jsonb_agg(jsonb_build_object('product_id',q.pid,'quantity',q.qty) ORDER BY q.pid)
    INTO items FROM (SELECT (x->>'product_id')::uuid pid,sum((x->>'quantity')::integer) qty FROM jsonb_array_elements(g->'items') x GROUP BY 1) q;
   IF EXISTS(SELECT 1 FROM jsonb_array_elements(items) x WHERE (x->>'quantity')::integer>1000) THEN RAISE EXCEPTION '%번 주문: 같은 상품의 합계는 1000개 이하여야 합니다.',idx; END IF;
-  n:=jsonb_build_object('order_date',d,'ship_date',sd,'customer_name',btrim(g->>'customer_name'),
+  n:=jsonb_build_object('partner_type',partner,'order_date',d,'ship_date',sd,'customer_name',btrim(g->>'customer_name'),
    'manager_name',coalesce(btrim(g->>'manager_name'),''),'contact',coalesce(btrim(g->>'contact'),''),
    'address',btrim(g->>'address'),'receive_method',method,'note',coalesce(btrim(g->>'note'),''),'items',items);
   SELECT coalesce(jsonb_agg(jsonb_build_object('id',o.id,'order_no',o.order_no) ORDER BY o.id),'[]') INTO matches
@@ -74,8 +76,8 @@ BEGIN
   RETURN jsonb_build_object('ok',true,'ready',true,'needs_confirmation',jsonb_array_length(dup)>0,'duplicates',dup,'count',jsonb_array_length(normalized));
  END IF;
  FOR g IN SELECT value FROM jsonb_array_elements(normalized) LOOP
-  oid:=public.create_admin_order_v2((g->>'order_date')::date,g->>'customer_name',g->>'manager_name',g->>'contact',
-   (g->>'ship_date')::date,'기관주문',g->>'address',g->>'receive_method',g->>'note',g->'items');
+  oid:=public.create_admin_order_with_partner_v1((g->>'order_date')::date,g->>'customer_name',g->>'manager_name',g->>'contact',
+   (g->>'ship_date')::date,'기관주문',g->>'address',g->>'receive_method',g->>'note',g->'items',g->>'partner_type');
   ids:=ids||jsonb_build_array(oid);
  END LOOP;
  INSERT INTO private.admin_order_imports(file_hash,created_by,order_ids) VALUES(p_file_hash,auth.uid(),ids);
@@ -83,3 +85,4 @@ BEGIN
 END $fn$;
 REVOKE ALL ON FUNCTION public.import_admin_orders_v1(text,jsonb,boolean,text[]) FROM PUBLIC,anon;
 GRANT EXECUTE ON FUNCTION public.import_admin_orders_v1(text,jsonb,boolean,text[]) TO authenticated;
+

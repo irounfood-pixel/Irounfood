@@ -14,12 +14,12 @@ export function createPhotoExportHandler({accessHash, sheetId, gateway, digest})
    const validDate=v=>typeof v==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(v)&&!Number.isNaN(Date.parse(v))&&new Date(v).toISOString().slice(0,10)===v;
    if((input.from!==undefined||input.to!==undefined)&&(!validDate(input.from)||!validDate(input.to)||input.from>input.to))return reply({ok:false,error:'발송 시작일과 종료일을 확인해주세요.'},400);
    if(input.order_id!==undefined&&(typeof input.order_id!=='string'||!/^[0-9a-f-]{36}$/i.test(input.order_id)))return reply({ok:false,error:'주문을 확인해주세요.'},400);
-   if(!await gateway.enabled(sheetId))return reply({ok:false,error:'거래처 연결이 비활성 상태입니다.'},403);
-   const rows=await gateway.approvedRows(sheetId);
+   if(!await gateway.enabled(sheetId,input))return reply({ok:false,error:'거래처 연결이 비활성 상태입니다.'},403);
+   const rows=await gateway.approvedRows(sheetId,input);
    const orders=new Map();
    for(const r of rows){
     if(r.sheet_id!==sheetId||r.status!=='승인'||!r.approved_order_id)throw Error('invalid source scope');
-    if(input.from&&(r.ship_date<input.from||r.ship_date>input.to))continue;
+    if(input.from&&(!r.ship_date||r.ship_date<input.from||r.ship_date>input.to))continue;
     if(input.order_id&&r.approved_order_id!==input.order_id)continue;
     if(!orders.has(r.approved_order_id))orders.set(r.approved_order_id,{order_id:r.approved_order_id,source_rows:[],recipient:r.recipient,contact:r.contact,address:r.address,ship_date:r.ship_date});
     orders.get(r.approved_order_id).source_rows.push(Number(r.source_row));
@@ -38,3 +38,4 @@ export function createPhotoExportHandler({accessHash, sheetId, gateway, digest})
   }catch(_){return reply({ok:false,error:'첨부사진을 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.'},502);}
  };
 }
+

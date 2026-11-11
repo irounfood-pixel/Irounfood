@@ -57,7 +57,7 @@ function getMLPortalData(){
  const s=mlSheet_(),state=mlPortalApi_('status');mlUnlockRegistered_(s,state.rows);
  const uidRows=mlApplyCanonical_(s,state.rows);
  const rowUids=new Map([...uidRows].map(([uid,row])=>[row,uid]));
- const data=getMLPortalDataLegacy_(),deleted=new Set(state.deleted_uids||[]),byUid=new Map(state.rows.map(x=>[String(x.source_uid),x]));
+ const data=getMLPortalDataLegacy_(),deleted=new Set([...(state.deleted_uids||[]),...(state.hidden_uids||[])]),byUid=new Map(state.rows.map(x=>[String(x.source_uid),x]));
  const entries=data.rows.map((row,i)=>{const uid=rowUids.get(data.sourceRows[i]),item=byUid.get(uid);
   return {row,sourceRow:data.sourceRows[i],uid,state:item&&mlKey_(item.fields)===mlKey_(row)?item:null};
  }).filter(e=>!deleted.has(e.uid));
@@ -82,12 +82,16 @@ function mlApplyCanonical_(s,states){
  }
  return uidRows;
 }
+function mlAssertVisibleUid_(state,uid){
+ if((state.hidden_uids||[]).includes(uid))throw Error('현재 ML에서 처리할 수 없는 주문입니다. 새로고침해 주세요.');
+ if((state.deleted_uids||[]).includes(uid))throw Error('이미 삭제한 주문입니다. 새로고침해 주세요.');
+}
 function updateMLPortalOrder(sourceRow,expected,input){
  const lock=LockService.getScriptLock();lock.waitLock(30000);
  try{
   const s=mlSheet_(),uid=Number.isInteger(sourceRow)&&sourceRow>=2&&sourceRow<=s.getLastRow()?mlUid_(s,sourceRow):null;
   const state=mlPortalApi_('status');
-  if((state.deleted_uids||[]).includes(uid))throw Error('이미 삭제한 주문입니다. 새로고침해 주세요.');
+  mlAssertVisibleUid_(state,uid);
   const row=state.rows.find(x=>x.source_uid===uid);
   if(row?.status==='승인'){
    if(!['주문접수','준비중'].includes(row.order_status))throw Error('출고완료·취소 주문은 수정할 수 없습니다.');
@@ -99,7 +103,11 @@ function updateMLPortalOrder(sourceRow,expected,input){
   }
   if(row&&!['등록','승인대기'].includes(row.status))throw Error('수정할 수 없는 주문입니다.');
  }finally{lock.releaseLock();}
- const s=mlSheet_();mlUnlockRegistered_(s,mlPortalApi_('status').rows);
+ const s=mlSheet_(),latest=mlPortalApi_('status');
+ const uid=Number.isInteger(sourceRow)&&sourceRow>=2&&sourceRow<=s.getLastRow()?mlUid_(s,sourceRow):null;
+ mlAssertVisibleUid_(latest,uid);
+ if(latest.rows.some(x=>x.source_uid===uid&&!['등록','승인대기'].includes(x.status)))throw Error('주문 상태가 변경되었습니다. 새로고침해 주세요.');
+ mlUnlockRegistered_(s,latest.rows);
  return updateMLPortalOrderLegacy_(sourceRow,expected,input);
 }
 function manageMLPortalOrder(uid,updated,expected,action){
@@ -112,10 +120,12 @@ function manageMLPortalOrder(uid,updated,expected,action){
    found=true;break;
   }
   if(!found)throw Error('주문 위치가 변경되었습니다. 새로고침해 주세요.');
+  mlAssertVisibleUid_(mlPortalApi_('status'),uid);
   const normalized=expected.map((v,i)=>i<2?mlDate_(v):String(v??'').trim());
   const result=mlPortalApi_(action,uid,normalized,updated);mlUnlockRegistered_(s,result.rows);
   return {ok:true,action};
  }finally{lock.releaseLock();}
 }
+
 
 

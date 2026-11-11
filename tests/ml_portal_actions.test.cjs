@@ -3,7 +3,9 @@ const server=fs.readFileSync(require('node:path').join(__dirname,'../apps_script
 const a='00000000-0000-4000-8000-000000000001',b='00000000-0000-4000-8000-000000000002';
 const fields=['2026-10-29','2026-11-30','초코스틱','2','테스트','010-0000-0000','배송금지 주소',''];
 function fixture(){
- const s={getLastRow:()=>3,getProtections:()=>[],getRange:r=>({getDeveloperMetadata:()=>[{getKey:()=> 'IROUN_PARTNER_SOURCE_UID_V2',getValue:()=>r==='2:2'?a:b}],getDisplayValues:()=>[fields]})};
+ const s={getLastRow:()=>3,getProtections:()=>[],getRange:r=>({getDeveloperMetadata:()=>[{getKey:()=> 'IROUN_PARTNER_SOURCE_UID_V2',getValue:()=>r==='2:2'?a:b}],getDisplayValues:()=>[fields,fields]})};
+ s.getSheetId=()=>7;
+ s.getParent=()=>({createDeveloperMetadataFinder:()=>({withKey:()=>({find:()=>[a,b].map((uid,i)=>({getValue:()=>uid,getLocation:()=>({getRow:()=>({getSheet:()=>s,getRow:()=>i+2})})}))})})});
  const context=vm.createContext({mlSheet_:()=>s,getMLPortalDataLegacy_:()=>({headers:[],products:[],rows:[fields,fields],sourceRows:[2,3],lockedSourceRows:[]}),
   SpreadsheetApp:{ProtectionType:{RANGE:'RANGE'}},mlKey_:r=>r.slice(0,8).join('|'),mlDate_:v=>v,
   LockService:{getScriptLock:()=>({waitLock(){},releaseLock(){}})}});
@@ -33,4 +35,21 @@ test('approved edit calls update directly and writes the canonical reply without
  c.mlPortalApi_=(action,uid,expected,updated,input)=>{actions.push(action);if(action==='status')return {rows:[state],deleted_uids:[]};assert.equal(action,'update');assert.equal(uid,a);assert.equal(updated,'v1');assert.equal(JSON.stringify(input),JSON.stringify(wanted));return {rows:[{...state,fields:wanted}]};};
  c.mlValidate_=()=>({rows:[wanted],errors:[]});c.mlProducts_=()=>[];c.mlWrite_=(sheet,row,rows)=>writes.push({row,rows});
  assert.equal(c.updateMLPortalOrder(2,fields,wanted).ok,true);assert.deepEqual(actions,['status','update']);assert.equal(writes.length,1);assert.equal(writes[0].row,2);assert.equal(writes[0].rows[0][3],'8');
+});
+
+
+test('hidden ML classification UID is excluded without hiding another identical pending row',()=>{const {context:c}=fixture();c.mlPortalApi_=()=>({rows:[{source_uid:b,status:'등록',fields}],hidden_uids:[a],deleted_uids:[]});const result=c.getMLPortalData();assert.equal(result.rows.length,1);assert.equal(result.sourceRows[0],3);});
+
+test('hidden UID edit rejects before legacy write or update',()=>{
+ const {context:c}=fixture();const actions=[];c.mlPortalApi_=action=>{actions.push(action);return {rows:[],hidden_uids:[a]};};
+ c.updateMLPortalOrderLegacy_=()=>{throw Error('must not write legacy');};
+ assert.throws(()=>c.updateMLPortalOrder(2,fields,fields),/ML에서 처리할 수 없는/);assert.deepEqual(actions,['status']);
+});
+test('hidden UID cancel and delete reject before mutation',()=>{
+ for(const action of ['cancel','delete']){const {context:c}=fixture();const actions=[];c.mlPortalApi_=op=>{actions.push(op);return {rows:[],hidden_uids:[a]};};
+ assert.throws(()=>c.manageMLPortalOrder(a,'v1',fields,action),/ML에서 처리할 수 없는/);assert.deepEqual(actions,['status']);}
+});
+test('visibility change before legacy fallback rejects sheet write',()=>{
+ const {context:c}=fixture();let calls=0;c.mlPortalApi_=()=>({rows:[],hidden_uids:++calls===1?[]:[a]});c.updateMLPortalOrderLegacy_=()=>{throw Error('must not write legacy');};
+ assert.throws(()=>c.updateMLPortalOrder(2,fields,fields),/ML에서 처리할 수 없는/);assert.equal(calls,2);
 });
