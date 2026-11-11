@@ -25,3 +25,11 @@
 `node --test tests/ml_drive_manifest.test.mjs tests/ml_scoped_manifest.test.mjs tests/ml_portal_scope_edge.test.mjs`: 18/18 pass. Includes >201 older photos with a newer single-order/date request, 200-photo overflow, invalid authentication/parameters, unknown order, unexpected gateway scope, and SQL grant/filter guards.
 
 Staging SQL fixtures passed with rollback, including 250 historical photos, date/order scoping, non-ML/cancelled/deleted/legacy cases, hidden UID/token/grant checks, and atomic public cancel/update rejection after classification change. No fixture orders remained. Actual production deployment/browser/Excel verification remains the deployment owner’s responsibility. No local Deno binary was available.
+
+
+## Production verification, 2026-11-11
+- Database migrations and Edge functions are deployed: portal status v9 and photo export v5. Deployed source files match the reviewed release.
+- Apps Script v17 is deployed at the existing URL. Read-only browser checks confirmed target orders, tracking and four photos for the shipped direct order. Both Excel modes report successful generation; workbook bytes could not be inspected in that browser.
+- Order, item, shipping, photo, partner-link and inventory counts/checksums are preserved, apart from the separately approved single-order partner classification.
+- Full local JavaScript run: 71/72 tests pass. The order_documents supplier-count failure is reproducible on unchanged main and was not modified.
+- Static administrator deployment must be verified against the current main source; a successful merge alone is not proof of a Pages deployment. The prior Pages deployment still served the previous source when checked.
