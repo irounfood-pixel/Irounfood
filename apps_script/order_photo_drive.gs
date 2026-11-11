@@ -124,7 +124,7 @@ function photoMLRead_(p) {
   if (!PHOTO_UUID_.test(p.order_id||'') || !PHOTO_UUID_.test(p.photo_id||'') || typeof p.access_token!=='string' || !/^[A-Za-z0-9_-]{40,180}$/.test(p.access_token)) throw Error('ML 사진 접근 권한을 확인해주세요.');
   const hash=Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,p.access_token,Utilities.Charset.UTF_8).map(x=>((x+256)%256).toString(16).padStart(2,'0')).join('');
   if(hash!=='48c94e428fe357deb2ff74e78bdc3c37543b0c80d301231a334f15da3b3e8de7') throw Error('ML 사진 접근 권한을 확인해주세요.');
-  const response=UrlFetchApp.fetch(PHOTO_DB_URL_+'/functions/v1/partner-photo-export',{method:'post',contentType:'application/json',headers:{Authorization:'Bearer '+p.access_token},payload:'{}',muteHttpExceptions:true});
+  const response=UrlFetchApp.fetch(PHOTO_DB_URL_+'/functions/v1/partner-photo-export',{method:'post',contentType:'application/json',headers:{Authorization:'Bearer '+p.access_token},payload:JSON.stringify({order_id:p.order_id}),muteHttpExceptions:true});
   if(response.getResponseCode()!==200) throw Error('ML 사진 목록 확인에 실패했습니다.');
   const manifest=JSON.parse(response.getContentText());
   if(!manifest.ok || !Array.isArray(manifest.photos) || manifest.photos.length>200) throw Error('ML 사진 목록 확인에 실패했습니다.');
