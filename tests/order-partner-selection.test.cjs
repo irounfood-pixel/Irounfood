@@ -9,10 +9,13 @@ c.window=c;c.addEventListener=()=>{};c.scrollTo=()=>{};vm.createContext(c);
 for(const m of html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g))if(m[1])vm.runInContext(m[1],c);
 const run=s=>vm.runInContext(s,c);
 (async()=>{
- for(const [order,expected] of [[{customer_name:'ML_기관'},'ML'],[{customer_name:'일반기관'},'해당없음'],[{customer_name:'ML_기관',partner_type:'해당없음'},'해당없음'],[{customer_name:'학교',partner_type:'ML'},'ML']]){
+ for(const [order,expected] of [[{customer_name:'ML_기관'},'미분류'],[{customer_name:'일반기관'},'미분류'],[{customer_name:'ML_기관',partner_type:'해당없음'},'해당없음'],[{customer_name:'학교',partner_type:'ML'},'ML']]){
   c.example=order;assert.equal(run('orderPartnerType(example)'),expected);assert.equal(run('isMLParcelOrder(example)'),expected==='ML');
  }
- assert.match(run("partnerSelect('o_partner')"),/value="해당없음" selected/);
+ run("state.mlApprovedOrderIds=new Set(['linked'])");
+ c.example={id:'linked',partner_type:null,customer_name:'기관'};assert.equal(run('orderPartnerType(example)'),'ML');
+ c.example.partner_type='해당없음';assert.equal(run('orderPartnerType(example)'),'해당없음');
+ assert.match(run("partnerSelect('o_partner')"),/value="" selected/);
  run("state.orders=[{id:'order-id',order_no:'123',customer_name:'학교',partner_type:'ML',order_status:'주문접수',order_items:[]}];init=async()=>{};route=()=>{};toast=()=>{};closeModal=()=>{};addEditOrderLine=()=>{};openOrder('order-id')");
  assert.match(el('modalBox').innerHTML,/<b>거래처<\/b><div>ML/);
  run("openEditOrder('order-id')");assert.match(el('modalBox').innerHTML,/value="ML" selected/);
@@ -20,5 +23,7 @@ const run=s=>vm.runInContext(s,c);
  await run('saveEditedOrder()');assert.equal(calls.at(-1).args.p_fields.partner_type,'해당없음');assert.equal(calls.at(-1).args.p_fields.customer_name,'학교');
  for(const [id,value] of Object.entries({o_customer:'일반학교',o_ship:'2026-11-10',o_address:'주소',o_method:'방문수령',o_partner:'ML'}))el(id).value=value;
  await run('saveOrder()');assert.equal(calls.at(-1).name,'create_admin_order_with_partner_v1');assert.equal(calls.at(-1).args.p_partner_type,'ML');assert.equal(calls.at(-1).args.p_customer_name,'일반학교');
- console.log('PASS: legacy classification, explicit override in both directions, default selection, details, edit and create payloads, institution name preserved');
+ const count=calls.length;el('o_partner').value='';await run('saveOrder()');assert.equal(calls.length,count);
+ console.log('PASS: explicit and approved-link classification without name inference, explicit override in both directions, default selection, details, edit and create payloads, institution name preserved');
 })().catch(e=>{console.error(e);process.exitCode=1;});
+

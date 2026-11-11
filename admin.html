@@ -223,13 +223,15 @@ async function readTable(label,queryFactory){
  catch(e){const message=label+': '+(e.message||e);state.errors.push(message);console.error(message,e);return null;}
 }
 async function loadAll(){state.loading=true;state.errors=[];try{
- const [os,pis,ii,cr,mv]=await Promise.all([
+ const [os,pis,ii,cr,mv,mlLinks]=await Promise.all([
   readTable('주문',()=>readPaged(()=>db.from('orders').select('*,order_items(*)').is('deleted_at',null).order('ship_date',{ascending:true}).order('order_no',{ascending:true}).order('id'))),
   readTable('상품',()=>db.from('products').select('*').order('name')),
   readTable('재고품목',()=>db.from('inventory_items').select('*').order('name')),
   readTable('고객주문신청',()=>readPaged(()=>db.from('customer_order_requests').select('*,customer_order_request_items(*)').order('created_at',{ascending:false}).order('id'))),
-  readTable('재고이력',()=>db.from('inventory_transactions').select('*').order('created_at',{ascending:false}).limit(200))
+  readTable('재고이력',()=>db.from('inventory_transactions').select('*').order('created_at',{ascending:false}).limit(200)),
+  readTable('ML 승인 연결',()=>readPaged(()=>db.from('partner_order_rows').select('id,status,sheet_id,approved_order_id,partner_sheet_sources(enabled)').eq('status','승인').eq('sheet_id','1lgXZtokJqUfvBibMmXgEPfu7KjTCteIigU_NcVYndfM').order('id')))
  ]);
+ state.mlApprovedOrderIds=new Set((mlLinks||[]).filter(r=>r.status==='승인'&&r.approved_order_id&&r.sheet_id==='1lgXZtokJqUfvBibMmXgEPfu7KjTCteIigU_NcVYndfM'&&r.partner_sheet_sources?.enabled===true).map(r=>String(r.approved_order_id)));
  state.orders=os||[];state.products=pis||[];state.items=ii||[];state.requests=cr||[];state.movements=mv||[];
  if(state.errors.length)toast('일부 데이터 조회 실패: '+state.errors[0]);
  }catch(e){state.errors.push('초기화: '+(e.message||e));console.error(e);toast('데이터 조회 실패: '+(e.message||e));}finally{state.loading=false}}
@@ -268,10 +270,13 @@ function productOptions(onlyActive=true){return (onlyActive?activeProducts():sta
 function itemOptions(){return state.items.map(i=>`<option value="${esc(i.id)}">${esc(i.name)} (${fmt(i.current_qty)} ${esc(i.unit||'')})</option>`).join('')}
 function orderPartnerType(order){
  if(order.partner_type==='ML'||order.partner_type==='해당없음')return order.partner_type;
- return /^ml(?:$|거래처|지사|[_\-])/i.test(String(order.customer_name||'').replace(/\s+/g,''))?'ML':'해당없음';
+ // Only an authenticated, approved ML sheet relationship can classify a legacy row.
+ // Customer names never grant partner visibility.
+ return state.mlApprovedOrderIds?.has(String(order.id))?'ML':'미분류';
 }
-function partnerSelect(id,value='해당없음'){
- return '<div class="field"><label for="'+id+'">거래처</label><select id="'+id+'">'+['해당없음','ML'].map(v=>'<option value="'+v+'"'+(v===value?' selected':'')+'>'+v+'</option>').join('')+'</select></div>';
+function partnerSelect(id,value=''){
+ const selected=['해당없음','ML'].includes(value)?value:'';
+ return '<div class="field"><label for="'+id+'">거래처 *</label><select id="'+id+'" required><option value=""'+(!selected?' selected':'')+'>거래처를 선택하세요</option>'+['해당없음','ML'].map(v=>'<option value="'+v+'"'+(v===selected?' selected':'')+'>'+v+'</option>').join('')+'</select><small class="muted">ML 주문은 ML을 선택하세요. 고객명으로 자동 분류하지 않습니다.</small></div>';
 }
 function renderOrderForm(){
  $('page').innerHTML=`<div class="top"><div><h1>주문등록</h1><div class="muted">기관 주문이나 관리자가 대신 접수하는 고객 주문을 등록합니다.</div></div><button class="btn secondary" onclick="route('orderupload')">엑셀 업로드</button></div>
@@ -285,6 +290,7 @@ async function nextOrderNo(){const {data,error}=await db.rpc('next_order_no');if
 async function saveOrder(){
  const customer=$('o_customer').value.trim();
  const ship=$('o_ship').value;
+ if(!['해당없음','ML'].includes($('o_partner').value))return toast('거래처를 해당없음 또는 ML로 선택해주세요.');
  if(!customer||!ship||!$('o_address').value.trim())return toast('고객/기관명, 배송일, 배송지는 입력해주세요.');
  const lines=[...document.querySelectorAll('#olines .kitrow')].map(r=>({
    product_id:r.querySelector('.oline-product').value,
@@ -405,6 +411,7 @@ async function saveEditedOrder(){
   manager_name:$('edit-order-manager').value.trim(),contact:$('edit-order-contact').value.trim(),
   ship_date:$('edit-order-ship').value,address:$('edit-order-address').value.trim(),
   receive_method:$('edit-order-method').value,note:$('edit-order-note').value.trim()};
+ if(!['해당없음','ML'].includes(fields.partner_type))return toast('거래처를 해당없음 또는 ML로 선택해주세요.');
  if(!fields.customer_name||!fields.ship_date||!fields.address)return toast('고객/기관명, 배송일, 배송지는 입력해주세요.');
  const rows=[...document.querySelectorAll('#edit-order-lines .kitrow')];
  const items=rows.map(row=>({item_id:row.dataset.itemId||null,product_id:row.querySelector('.edit-order-product').value||null,
@@ -1160,3 +1167,4 @@ IrounBackGuard.install({isHome:()=>state.page==='dashboard',goHome:()=>route('da
  closeOverlay:()=>{if(!$('modal').classList.contains('hidden')){closeModal();return true;}return false;}});
 </script>
 </body></html>
+
