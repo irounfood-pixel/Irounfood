@@ -21,6 +21,11 @@ Deno.serve(async(req:Request)=>{
    p_source_uid:p.source_uid||null,p_expected:p.expected||null,p_expected_updated_at:p.expected_updated_at||null};
   const {data,error}=action==="update"?await db.rpc("partner_portal_update",{p_sheet_id:sheet,p_token_hash:hash,p_source_uid:p.source_uid,p_expected:p.expected,p_expected_updated_at:p.expected_updated_at,p_input:p.input}):await db.rpc("partner_portal_manage",args);
   if(error)return reply({ok:false,error:action==="status"?"거래처 인증 또는 연결을 확인해 주세요.":"처리할 수 없습니다. 주문 상태를 새로고침해 주세요. 출고완료 주문은 취소·삭제할 수 없습니다."},409);
+  if(action==="status" && data?.ok===true){
+   const {data:directOrders,error:directError}=await db.rpc("ml_portal_direct_orders",{p_sheet_id:sheet,p_token_hash:hash});
+   if(directError||!Array.isArray(directOrders))return reply({ok:false,error:"관리자 등록 ML 주문을 조회하지 못했습니다."},502);
+   return reply({...data,direct_orders:directOrders});
+  }
   return reply(data);
  }catch{return reply({ok:false,error:"잘못된 요청입니다."},400);}
 });
