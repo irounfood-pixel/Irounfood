@@ -1,5 +1,12 @@
 # ML 관리자 직접 등록 주문 누락 대응 (2026-11-11)
 
+## 운영 적용 상태 (2026-11-11 19:25 KST 이후)
+- **완료:** 운영 Supabase migration `ml_direct_admin_orders_scoped_read_20261111` 적용. 관리자 직접 등록 ML 주문 260080 / 260077에 대한 권한 범위 제한 조회 및 사진 manifest 포함.
+- **완료:** 운영 Edge Function `partner-portal-manage` **v8** 배포 (`verify_jwt=false` 기존 설정 유지; 자체 시트별 토큰 인증 적용).
+- **검증:** 운영 RPC에서 주문 260080과 사진 4장 조회 성공. 운영 `orders`, `order_shipping_details`, `order_photos`, `partner_order_rows`, `inventory_items`의 수량 및 체크섬이 작업 전과 동일.
+- **미완료:** Google Apps Script 프로젝트(프로젝트 ID `1Hrq4ekWBAgh59R4sKLYKeNCeAeGezOUwXfnB2UngXJjSC0Oq8MVVJF0T`)의 기존 **배포 버전 변경**. 이 환경에서는 Apps Script 프로젝트 콘텐츠/배포를 수정하는 커넥터가 없어 UI 보장은 아직 불가. GitHub 원본 코드의 설정용 자리표시자를 운영 스크립트에 덮어쓰지 말 것.
+- **운영상 주의:** 백엔드는 추가 필드 `direct_orders`만 응답하며, 이전 Apps Script 버전은 이 필드를 무시한다. 그러므로 ML 웹페이지에 260080 표시가 바로 나타난다고 보고해서는 안 된다.
+
 ## 확인 결과 (읽기 전용 운영 DB 조회)
 - **260080**: 발송일 2026-11-11, 거래처 `ML`, 출고완료, 송장 있음, 사진 4장. `partner_order_rows` 연결이 0건이어서 기존 ML 웹앱에는 나타나지 않음.
 - **260077**: 발송일 2026-11-20, 거래처 `ML`, 아직 송장/사진 없음. 같은 구조로 조회에서 빠짐.
