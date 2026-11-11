@@ -31,6 +31,28 @@ function mlUnlockRegistered_(s,states){
   }
  }
 }
+// Read-only projection. Administrator-created ML orders must not be added to
+// the partner input sheet or offered partner edit/delete actions.
+function mlDirectOrderRows_(orders){
+ const result=[];
+ if(!Array.isArray(orders))return result;
+ for(const o of orders){
+  if(!o||!o.order_id||!Array.isArray(o.items))continue;
+  for(const item of o.items){
+   const name=String(item?.name||'').trim(),quantity=Number(item?.quantity);
+   if(!name||!Number.isInteger(quantity)||quantity<1)continue;
+   const boxNames=['ice_small','ice_medium','ice_large','paper_medium','paper_large'];
+   const row=[String(o.order_date||''),String(o.ship_date||''),name,String(quantity),
+    String(o.recipient||''),String(o.contact||''),String(o.address||''),String(o.note||''),
+    String(o.tracking_numbers||''),...boxNames.map(k=>String(Number(o[k])||0)),String(Number(o.photo_count)||0)];
+   const state={status:'승인',order_status:String(o.order_status||'주문접수'),
+    approved_order_id:String(o.order_id),order_no:String(o.order_no||''),readonly_direct:true};
+   result.push({row,sourceRow:-(result.length+1),state});
+  }
+ }
+ return result;
+}
+
 function getMLPortalData(){
  const s=mlSheet_(),state=mlPortalApi_('status');mlUnlockRegistered_(s,state.rows);
  const uidRows=mlApplyCanonical_(s,state.rows);
@@ -40,9 +62,13 @@ function getMLPortalData(){
   return {row,sourceRow:data.sourceRows[i],uid,state:item&&mlKey_(item.fields)===mlKey_(row)?item:null};
  }).filter(e=>!deleted.has(e.uid));
  const editable=new Set(entries.filter(e=>e.state?.status==='승인'&&['주문접수','준비중'].includes(e.state.order_status)).map(e=>e.sourceRow));
- return {...data,lockedSourceRows:(data.lockedSourceRows||[]).filter(n=>!editable.has(n)),rows:entries.map(e=>e.state?.status==='승인'&&Object.prototype.hasOwnProperty.call(e.state,'tracking_numbers')?[...e.row.slice(0,8),String(e.state.tracking_numbers||''),...['ice_small','ice_medium','ice_large','paper_medium','paper_large'].map(k=>String(e.state[k]||0)),String(e.state.photo_count||0)]:e.row),sourceRows:entries.map(e=>e.sourceRow),
-  orderStates:entries.map(e=>e.state?{source_uid:e.uid,status:e.state.status,order_status:e.state.order_status,
-   updated_at:e.state.updated_at,approved_order_id:e.state.approved_order_id,order_no:e.state.order_no}:null)};
+ const direct=mlDirectOrderRows_(state.direct_orders);
+ return {...data,
+  lockedSourceRows:[...(data.lockedSourceRows||[]).filter(n=>!editable.has(n)),...direct.map(e=>e.sourceRow)],
+  rows:[...entries.map(e=>e.state?.status==='승인'&&Object.prototype.hasOwnProperty.call(e.state,'tracking_numbers')?[...e.row.slice(0,8),String(e.state.tracking_numbers||''),...['ice_small','ice_medium','ice_large','paper_medium','paper_large'].map(k=>String(e.state[k]||0)),String(e.state.photo_count||0)]:e.row),...direct.map(e=>e.row)],
+  sourceRows:[...entries.map(e=>e.sourceRow),...direct.map(e=>e.sourceRow)],
+  orderStates:[...entries.map(e=>e.state?{source_uid:e.uid,status:e.state.status,order_status:e.state.order_status,
+   updated_at:e.state.updated_at,approved_order_id:e.state.approved_order_id,order_no:e.state.order_no}:null),...direct.map(e=>e.state)]};
 }
 function mlApplyCanonical_(s,states){
  const uidRows=new Map();
