@@ -16,7 +16,9 @@ export function createAdminDriveHandler({supabaseUrl,apiKey,bridgeUrl,fetchImpl=
    if(!input || !['upload','read','trash','mlRead'].includes(input.action) || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(input.order_id||''))return reply({ok:false,error:'사진 요청을 확인해주세요.'},400);
    if(input.action==='mlRead'){
     // Fixed, existing read-only ML share-link capability; never accepted for mutations.
-    if(token!=='AKfycby0_WPs43-J21OUS0d3SaByS7yK9X-r2HL1JbLvDZvZj0NV8xPNQ0JB8BPk2H-fhqfq')return reply({ok:false,error:'ML 사진 접근 권한을 확인해주세요.'},401);
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token)));
+    const hash = Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join('');
+    if(hash!=='fe8b5f40dbc6a149002ac70c685689efc409da9751484cd7f5fb84365a62f004')return reply({ok:false,error:'ML 사진 접근 권한을 확인해주세요.'},401);
    }else{
     const user=await fetchImpl(supabaseUrl+'/auth/v1/user',{headers:authHeaders});
     if(!user.ok)return reply({ok:false,error:'주문관리 로그인을 다시 확인해주세요.'},401);
