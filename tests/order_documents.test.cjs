@@ -5,7 +5,7 @@ const vm=require('node:vm');
 const path=require('node:path');
 const script=fs.readFileSync(path.join(__dirname,'../scripts/order_documents.js'),'utf8');
 const admin=fs.readFileSync(path.join(__dirname,'../admin.html'),'utf8');
-const sandbox={window:{},state:{orders:[],products:[]},localStorage:{getItem:()=>null,setItem:()=>{}}};
+const sandbox={IrounOrderMaterials:require('../scripts/order_materials.js'),window:{},state:{orders:[],products:[]},localStorage:{getItem:()=>null,setItem:()=>{}}};
 vm.runInNewContext(script,sandbox,{filename:'order_documents.js',timeout:2000});
 const {calculateRows,renderDocument}=sandbox.window.IrounOrderDocuments;
 const included=calculateRows([{name:'과세',quantity:2,unitPrice:1100,taxType:'included'}]);
@@ -33,6 +33,7 @@ assert.doesNotMatch(renderDocument({...sample,type:'delivery',seller:{name:'공�
 assert.match(script,/document_supplier_profile/);
 assert.match(script,/unit_price_snapshot/);
 assert.doesNotMatch(script,/localStorage\.setItem/);
-assert.equal((admin.match(/명세표 출력/g)||[]).length,2);
-assert.match(admin,/<script src="scripts\/order_documents\.js"><\/script>/);
+assert.equal((admin.match(/명세표 출력/g)||[]).length,4);
+assert.match(admin,/<script src="scripts\/order_documents\.js(?:\?[^"]*)?"><\/script>/);
 console.log('order_documents: all checks passed');
+
