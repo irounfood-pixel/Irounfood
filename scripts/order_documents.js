@@ -18,7 +18,7 @@
       const vat=taxType==="included"?base-supply:taxType==="excluded"?Math.round(base*0.1):0;
       const amount=supply+vat;
       supplyTotal+=supply;vatTotal+=vat;total+=amount;
-      return {name:String(item.name||"상품명 없음"),quantity:qty,unitPrice,taxType,supply,vat,amount};
+      return {name:String(item.name||"상품명 없음"),quantity:qty,unitPrice,taxType,supply,vat,amount,materialsHtml:item.materialsHtml||""};
     });
     if(![supplyTotal,vatTotal,total].every(Number.isSafeInteger))throw new Error("합계 금액 범위를 초과했습니다.");
     return {rows:result,supplyTotal,vatTotal,total};
@@ -27,18 +27,18 @@
     const isMoney=doc.type==="transaction";
     const title=isMoney?"거래명세표":"납품명세표";
     const seller=doc.seller||{},buyer=doc.buyer||{},rows=doc.rows||[];
-    const docRows=rows.map((r,i)=>"<tr><td class='center'>"+(i+1)+"</td><td>"+safe(r.name)+"</td><td class='right'>"+won(r.quantity)+"</td>"+(isMoney?"<td class='right'>"+won(r.unitPrice)+"</td><td class='right'>"+won(r.supply)+"</td><td class='right'>"+won(r.vat)+"</td><td class='right'>"+won(r.amount)+"</td>":"")+"</tr>").join("");
     const spans=isMoney?7:3;
+    const docRows=rows.map((r,i)=>"<tr class='item-row'><td class='center'>"+(i+1)+"</td><td>"+safe(r.name)+"</td><td class='right'>"+won(r.quantity)+"</td>"+(isMoney?"<td class='right'>"+won(r.unitPrice)+"</td><td class='right'>"+won(r.supply)+"</td><td class='right'>"+won(r.vat)+"</td><td class='right'>"+won(r.amount)+"</td>":"")+"</tr>"+"<tr class='material-row'><td colspan='"+spans+"'>"+IrounOrderMaterials.render(r,rows)+"</td></tr>").join("");
     const totals=isMoney?`<div class="totals"><span>공급가액 ${won(doc.supplyTotal)}원</span><span>부가세 ${won(doc.vatTotal)}원</span><strong>합계 ${won(doc.total)}원</strong></div>`:`<div class="totals"><strong>총 수량 ${won(rows.reduce((n,r)=>n+Number(r.quantity),0))}개</strong></div>`;
     const heads=isMoney?"<th>번호</th><th>품명</th><th>수량</th><th>단가</th><th>공급가액</th><th>부가세</th><th>합계</th>":"<th>번호</th><th>품명</th><th>수량</th>";
     return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>${title} ${safe(doc.orderNo)}</title>
-<style>@page{size:A4;margin:13mm}*{box-sizing:border-box}body{font-family:Arial,"Noto Sans KR",sans-serif;margin:0;color:#222;font-size:12px}h1{text-align:center;font-size:25px;letter-spacing:6px;margin:5px 0 24px}.meta{display:flex;justify-content:space-between;margin-bottom:14px}.blocks{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:12px 0 20px}.block{border:1px solid #999}.block h2{font-size:13px;background:#f1f1f1;margin:0;padding:9px}.details{display:grid;grid-template-columns:65px 1fr;gap:8px 5px;padding:10px}.details b{font-size:11px}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #888;padding:8px 5px;overflow-wrap:anywhere}th{background:#f1f1f1}.center{text-align:center}.right{text-align:right}.totals{display:flex;justify-content:flex-end;gap:20px;margin-top:12px;font-size:13px}.totals strong{font-size:17px}.payment{display:flex;gap:12px;margin-top:15px;border:1px solid #ccc;padding:10px;overflow-wrap:anywhere}.note{border:1px solid #ddd;margin-top:20px;padding:10px;min-height:50px;white-space:pre-wrap;overflow-wrap:anywhere}.foot{font-size:10px;color:#777;margin-top:20px}@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style></head><body>
+<style>@page{size:A4 portrait;margin:13mm}*{box-sizing:border-box}body{height:auto;overflow:visible;font-family:Arial,"Noto Sans KR",sans-serif;margin:0;color:#222;font-size:12px}h1{text-align:center;font-size:25px;letter-spacing:6px;margin:5px 0 24px}.meta{display:flex;justify-content:space-between;margin-bottom:14px}.blocks{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:12px 0 20px}.block{border:1px solid #999}.block h2{font-size:13px;background:#f1f1f1;margin:0;padding:9px}.details{display:grid;grid-template-columns:65px 1fr;gap:8px 5px;padding:10px}.details b{font-size:11px}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #888;padding:8px 5px;overflow-wrap:anywhere}th{background:#f1f1f1}.material-details{font-size:11px;line-height:1.5;margin-top:5px}.material-missing{font-size:11px;color:#555;margin-top:4px}thead{display:table-header-group}tr{break-inside:avoid;page-break-inside:avoid}.item-row{break-after:avoid;page-break-after:avoid}.material-row td{padding:6px 10px;background:#fafafa}.material-row .material-details{margin-top:0}.material-row .material-missing{margin-top:0}.center{text-align:center}.right{text-align:right}.totals{display:flex;justify-content:flex-end;gap:20px;margin-top:12px;font-size:13px}.totals strong{font-size:17px}.payment{display:flex;gap:12px;margin-top:15px;border:1px solid #ccc;padding:10px;overflow-wrap:anywhere}.note{border:1px solid #ddd;margin-top:20px;padding:10px;min-height:50px;white-space:pre-wrap;overflow-wrap:anywhere}.foot{font-size:10px;color:#777;margin-top:20px}@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}${IrounOrderMaterials.packingCss}</style></head><body>
 <h1>${title}</h1><div class="meta"><span>주문번호: ${safe(doc.orderNo||"-")}</span><span>작성일: ${safe(doc.date||"-")}</span></div>
 <section class="blocks"><div class="block"><h2>공급자</h2><div class="details"><b>상호</b><span>${safe(seller.name||"-")}</span><b>등록번호</b><span>${safe(seller.number||"-")}</span><b>대표자</b><span>${safe(seller.owner||"-")}</span><b>주소</b><span>${safe(seller.address||"-")}</span><b>연락처</b><span>${safe(seller.contact||"-")}</span><b>업태</b><span>${safe(seller.business_type||"-")}</span><b>종목</b><span>${safe(seller.business_item||"-")}</span></div></div>
 <div class="block"><h2>공급받는 자</h2><div class="details"><b>기관/상호</b><span>${safe(buyer.name||"-")}</span><b>수령인</b><span>${safe(buyer.manager||"-")}</span><b>연락처</b><span>${safe(buyer.contact||"-")}</span><b>배송지</b><span>${safe(buyer.address||"-")}</span><b>발송일</b><span>${safe(doc.shipDate||"-")}</span></div></div></section>
 <table><thead><tr>${heads}</tr></thead><tbody>${docRows||`<tr><td colspan="${spans}">상품 없음</td></tr>`}</tbody></table>${totals}${isMoney&&(seller.bank||seller.account)?`<div class="payment"><b>입금계좌</b><span>${safe(seller.bank||"")} ${safe(seller.account||"")}</span></div>`:""}
 <div class="note"><b>요청사항</b><div>${safe(doc.note||"-")}</div></div>
-<div class="foot">${isMoney?"거래명세표는 세금계산서가 아닙니다. 단가·세액 및 공급자 정보를 확인한 후 사용하세요.":"상품 및 수량 확인용 문서이며 금액을 표시하지 않습니다."}</div></body></html>`;
+<div class="foot">${isMoney?"거래명세표는 세금계산서가 아닙니다. 단가·세액 및 공급자 정보를 확인한 후 사용하세요.":"상품 및 수량 확인용 문서이며 금액을 표시하지 않습니다."}</div>${IrounOrderMaterials.renderPacking(rows,{orderNo:doc.orderNo,customer:buyer.name,shipDate:doc.shipDate})}</body></html>`;
   }
   // Supplier data is stored behind admin-only Supabase RLS; never embed business IDs or bank details in public HTML.
   async function supplierProfile(){
@@ -135,3 +135,4 @@
   window.printChosenOrderDocument=printChosen;
   window.saveOrderSupplierProfile=saveSupplierProfile;
 })();
+
