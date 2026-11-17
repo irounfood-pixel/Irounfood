@@ -60,7 +60,7 @@ for(const name of names){
 assert.equal(m.calculate({name:'과자집',quantity:30}).ingredients.find(x=>x.name==='웨하스(8개)').quantity,30);
 assert.equal(m.calculate({name:'도넛',quantity:30}).ingredients.find(x=>x.name==='미니도넛').quantity,120);
 assert.equal(m.calculate({name:'화과자',quantity:30}).ingredients.filter(x=>x.name.startsWith('생과자')).length,5);
-assert.equal(m.calculate({name:'감정컵케이크',quantity:30}).ingredients.filter(x=>x.name.startsWith('생과자')).length,4);
+assert.equal(m.calculate({name:'감정컵케이크',quantity:30}).ingredients.filter(x=>x.name.startsWith('생과자')).length,3);
 assert.equal(m.calculate({name:'과자집',quantity:Number.MAX_SAFE_INTEGER}).reason,'수량 범위 초과');
 assert.equal(m.calculate({name:'__proto__',quantity:30}).registered,false);
 assert.equal(m.calculate({name:'constructor',quantity:30}).registered,false);
@@ -154,3 +154,16 @@ assert(dupPacking.includes('자동 수량 미표시'));
 assert(!dupPacking.includes('식탁보(4인)'));
 assert(m.render({name:'도넛',quantity:5},[{name:'도넛',quantity:5},{name:'과자집',quantity:5}]).includes('식탁보(4인) 2개'));
 console.log('Duplicate same-type lines: tablecloth automatic count suppressed with explicit warning; other types unaffected.');
+
+
+for(const name of ['감정컵케이크','표정컵케이크']){
+ for(const quantity of [1,30]){
+  const dough=m.calculate({name,quantity}).ingredients.filter(x=>x.name.startsWith('생과자'));
+  assert.deepStrictEqual(dough,['흰색','빨강','갈색'].map(color=>({name:'생과자 '+color+' (15g)',quantity,unit:'봉'})));
+  for(const output of [m.render({name,quantity}),m.renderPacking([{name,quantity}],{})]){
+   for(const color of ['흰색','빨강','갈색'])assert(output.includes('생과자 '+color+' (15g)'));
+   for(const color of ['노색','검색','초색'])assert(!output.includes('생과자 '+color));
+  }
+ }
+}
+console.log('Cupcake and alias: three 15g dough portions, white/red/brown, one per kit; compact and packing outputs passed.');

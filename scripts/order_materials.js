@@ -3,7 +3,7 @@
   // Printing only. Never use these quantities to deduct stock or alter orders.
   const source = '12차시 재료 픽스 26 10 14 업데이트.pdf';
   const dough5 = ['흰','노','빨','검','초'].map(color=>['생과자 '+color+'색 (15g)',1,'봉']);
-  const dough4 = dough5.slice(0,4);
+  const cupcakeDough = ['흰색','빨강','갈색'].map(color=>['생과자 '+color+' (15g)',1,'봉']);
   const topping = ['3종 토핑 (각 5g)',1,'세트'];
   const recipes = Object.freeze({
     '뻥스케이크': {ingredients:[['쌀과자',2],topping,['마시멜로우 잼 (40g)',1,'봉']],supplies:[['교안(토퍼·꼬깔 + 이쑤시개 3개) OPP',1]]},
@@ -14,7 +14,7 @@
     '글자생과자': {ingredients:[...dough5,['크래커',1,'봉'],['참기름',1]],supplies:[['우드스틱',1]]},
     '캐릭터생과자': {ingredients:[...dough5,['크래커',1,'봉'],['참기름',1]],supplies:[['우드스틱',1]]},
     '도넛': {ingredients:[['미니도넛',4],topping,['슈가파우더 (20g)',1,'봉'],['초코펜 (랜덤 1종)',1]],supplies:[['계량물통',1],['수저',1],['종이컵',1],['A4유산지',1,'장']]},
-    '감정컵케이크': {ingredients:[['머핀',1],...dough4,['마시멜로우 잼 (40g)',1,'봉'],['참기름',1]],supplies:[['칼',1],['9온즈컵',1],['수저',1]]},
+    '감정컵케이크': {ingredients:[['머핀',1],...cupcakeDough,['마시멜로우 잼 (40g)',1,'봉'],['참기름',1]],supplies:[['칼',1],['9온즈컵',1],['수저',1]]},
     // Latest user-confirmed list overrides the historical PDF for this product.
     '식빵카나페': {confirmed:true,ingredients:[['식빵',1],['토마토',2],['치즈',1],['소세지',1],['피클',1],['마요네즈',1],['훈제계란',1]],supplies:[['수저',1],['칼',1]]},
     '과자집': {ingredients:[['웨하스(8개)',1],['집모양쿠키',2],['마시멜로우 잼 (15g)',1,'봉'],['3종 토핑·마시멜로우·곰돌이쿠키 묶음',1,'세트']],supplies:[]},
@@ -72,3 +72,4 @@
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   root.IrounOrderMaterials=api;
 })(typeof window!=='undefined'?window:globalThis);
+
