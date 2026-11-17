@@ -102,7 +102,7 @@ assert.equal(donut.ingredients.find(r=>r.name==='초코펜 (랜덤 1종)').quant
 assert.equal(donut.supplies.filter(r=>r.name==='종이컵').length,1);
 assert.equal(donut.supplies.find(r=>r.name==='종이컵').quantity,30);
 const puff=m.calculate({name:'뻥스케이크',quantity:30});
-assert.equal(puff.supplies.find(r=>r.name==='교안(토퍼·꼬깔 + 이쑤시개 3개) OPP').quantity,30);
+assert.equal(puff.supplies.find(r=>r.name==='교안(토퍼꼬깔 + 이쑤시개 5개) OPP').quantity,30);
 assert(!puff.supplies.some(r=>r.name==='이쑤시개'));
 const dumpling=m.calculate({name:'경단',quantity:30});
 assert.equal(dumpling.supplies.find(r=>r.name==='계량컵 (30mL)').quantity,30);
@@ -121,10 +121,10 @@ assert(!house60.ingredients.some(x=>x.name==='웨하스'));
 console.log('Wafer bundle verified: 60 house kits => 웨하스(8개) 60개, not loose-piece count.');
 
 const puff60=m.calculate({name:'뻥스케이크',quantity:60});
-assert.equal(puff60.supplies.find(r=>r.name==='교안(토퍼·꼬깔 + 이쑤시개 3개) OPP').quantity,60);
+assert.equal(puff60.supplies.find(r=>r.name==='교안(토퍼꼬깔 + 이쑤시개 5개) OPP').quantity,60);
 assert(!puff60.supplies.some(r=>r.name==='이쑤시개'));
-assert(m.render({name:'뻥스케이크',quantity:60}).includes('교안(토퍼·꼬깔 + 이쑤시개 3개) OPP 60개'));
-assert(m.renderPacking([{name:'뻥스케이크',quantity:60}],{}).includes('교안(토퍼·꼬깔 + 이쑤시개 3개) OPP <b>60개</b>'));
+assert(m.render({name:'뻥스케이크',quantity:60}).includes('교안(토퍼꼬깔 + 이쑤시개 5개) OPP 60개'));
+assert(m.renderPacking([{name:'뻥스케이크',quantity:60}],{}).includes('교안(토퍼꼬깔 + 이쑤시개 5개) OPP <b>60개</b>'));
 console.log('Topper/cone/toothpick OPP bundle: 60 kits => 60 packs; no duplicate toothpick item.');
 
 for(const name of names){
@@ -154,3 +154,14 @@ assert(dupPacking.includes('자동 수량 미표시'));
 assert(!dupPacking.includes('식탁보(4인)'));
 assert(m.render({name:'도넛',quantity:5},[{name:'도넛',quantity:5},{name:'과자집',quantity:5}]).includes('식탁보(4인) 2개'));
 console.log('Duplicate same-type lines: tablecloth automatic count suppressed with explicit warning; other types unaffected.');
+
+// 2026-11-17: each OPP bundle now includes five toothpicks, not three.
+for(const quantity of [1,30,60]){
+ const item={name:'뻥스케이크',quantity};
+ for(const output of [m.render(item),m.renderPacking([item],{})]){
+  assert(output.includes('교안(토퍼꼬깔 + 이쑤시개 5개) OPP'));
+  assert(!output.includes('이쑤시개 3개'));
+ }
+ assert.equal(m.calculate(item).supplies.filter(x=>x.name.includes('이쑤시개')).length,1);
+}
+console.log('Five toothpicks per OPP bundle, shared customer/packing output, bundle count unchanged.');
