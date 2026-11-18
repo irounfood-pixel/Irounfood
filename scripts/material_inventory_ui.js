@@ -28,12 +28,12 @@ window.renderMaterialInventory=async function(){
  }catch(e){if(token!==generation || state.page!=='materials')return;q('page').innerHTML=`<div class="panel"><h2>재고 화면을 불러오지 못했어요</h2><p>${safe(e.message||e)}</p><p>기존 주문과 기존 재고는 변경되지 않았습니다.</p><button class="btn secondary" id="mi-retry">다시 확인</button></div>`;q('mi-retry').onclick=window.renderMaterialInventory;}
 };
 function draw(){
- q('page').innerHTML=`<div class="top"><div><h1>원재료·반제품·제품</h1><div class="muted">입고 · 실사 · 생산 · 수동 예약 · 출고</div></div><div class="toolbar"><button class="btn secondary" id="mi-refresh">새로고침</button><button class="btn primary" id="mi-add">+ 품목 등록</button></div></div>
+ q('page').innerHTML=`<div class="top"><div><h1>원재료·반제품·제품</h1><div class="muted">입고 · 실사 · 생산 · 수동 예약 · 출고</div></div><div class="toolbar"><button class="btn secondary" id="mi-download">엑셀 체크리스트</button><button class="btn secondary" id="mi-upload">엑셀 실재고 업로드</button><button class="btn secondary" id="mi-refresh">새로고침</button><button class="btn primary" id="mi-add">+ 품목 등록</button></div></div>
  <div class="panel"><b>기존 주문·재고와 분리된 새 관리대장</b><p>주문 승인·출고와 자동 연결되지 않습니다. 예약도 수동 입력입니다. 빈 재고는 0이 아니라 미입력이며, 입고 전 최초 실사 수량을 입력해 주세요.</p><p class="muted">작업 가능 수량은 현재 준비된 반제품·원재료로 조립할 수 있는 수량입니다. 원재료로 반제품을 추가 생산하는 수량은 포함하지 않습니다. 여러 제품이 재료를 공유하므로 제품별 가능 수량을 합산하면 안 됩니다. 추정 개수는 출고 전 실제 수량을 확인하세요.</p></div>
  <div class="panel"><div class="toolbar"><label for="mi-filter">구분</label><select id="mi-filter"><option value="">전체</option>${Object.entries(kinds).map(([v,n])=>`<option value="${v}">${n}</option>`).join('')}</select><input id="mi-search" placeholder="품목명 검색" aria-label="품목명 검색"></div><div class="tablewrap"><table class="table"><thead><tr><th>품목 / 입고규격</th><th>구분</th><th>실재고</th><th>수동 예약</th><th>가용재고</th><th>추가 작업 가능</th><th>관리</th></tr></thead><tbody id="mi-rows"></tbody></table></div></div>
  <div id="mi-plans"></div>
- <div class="panel"><h2>최근 변경 이력</h2><div class="tablewrap"><table class="table"><thead><tr><th>일시</th><th>품목</th><th>작업</th><th>입력수량</th><th>사유</th></tr></thead><tbody>${snapshot.events.map(e=>`<tr><td>${safe(new Date(e.created_at).toLocaleString('ko-KR'))}</td><td>${safe(snapshot.items.find(i=>i.id===e.item_id)?.name||e.item_id)}</td><td>${safe(({receive:'입고',set:'실사',reserve:'수동예약',issue:'출고',produce:'생산'})[e.mode]||e.mode)}</td><td>${num(e.qty)}</td><td>${safe(e.reason)}</td></tr>`).join('')||'<tr><td colspan="5">아직 변경 이력이 없습니다.</td></tr>'}</tbody></table></div></div>`;
- q('mi-refresh').onclick=window.renderMaterialInventory;q('mi-add').onclick=()=>editItem(null);q('mi-filter').onchange=drawRows;q('mi-search').oninput=drawRows;drawRows();drawPlans();
+ <div class="panel"><h2>최근 변경 이력</h2><div class="tablewrap"><table class="table"><thead><tr><th>일시</th><th>품목</th><th>작업</th><th>입력수량</th><th>사유</th></tr></thead><tbody>${snapshot.events.map(e=>`<tr><td>${safe(new Date(e.created_at).toLocaleString('ko-KR'))}</td><td>${safe(snapshot.items.find(i=>i.id===e.item_id)?.name||e.item_id)}</td><td>${safe(({receive:'입고',set:'실사',reserve:'수동예약',issue:'출고',produce:'생산',stocktake_import:'엑셀 실사'})[e.mode]||e.mode)}</td><td>${num(e.qty)}</td><td>${safe(e.reason)}${e.mode==='stocktake_import'?`<details><summary>품목별 변경 내역</summary>${(e.changes||[]).map(c=>`<div>${safe(snapshot.items.find(i=>i.id===c.id)?.name||c.id)}: ${num(c.before)} → ${num(c.after)} ${safe(snapshot.items.find(i=>i.id===c.id)?.unit||'')} ${safe(c.note||'')}</div>`).join('')}</details>`:''}</td></tr>`).join('')||'<tr><td colspan="5">아직 변경 이력이 없습니다.</td></tr>'}</tbody></table></div></div>`;
+ q('mi-download').onclick=downloadStocktake;q('mi-upload').onclick=uploadStocktake;q('mi-refresh').onclick=window.renderMaterialInventory;q('mi-add').onclick=()=>editItem(null);q('mi-filter').onchange=drawRows;q('mi-search').oninput=drawRows;drawRows();drawPlans();
 }
 function drawRows(){const filter=q('mi-filter').value,search=q('mi-search').value.trim().toLowerCase();
  const items=snapshot.items.filter(i=>i.active!==false&&(!filter||i.kind===filter)&&i.name.toLowerCase().includes(search));
@@ -58,7 +58,7 @@ function bindSave(handler){
 }
 const pendingRequests=new Map();
 async function rpc(name,args){
- const key=['stock2_move','stock2_save_plan'].includes(name)?args.p_request:null,serialized=JSON.stringify(args);
+ const key=['stock2_move','stock2_save_plan','stock2_import_stocktake'].includes(name)?args.p_request:null,serialized=JSON.stringify(args);
  if(key&&pendingRequests.has(key)&&pendingRequests.get(key)!==serialized)throw Error('이전 요청의 저장 결과가 불확실합니다. 창을 닫고 새로고침하여 이력을 확인한 뒤 다시 작업해 주세요.');
  if(key)pendingRequests.set(key,serialized);
  const r=await db.rpc(name,args);
@@ -122,6 +122,22 @@ function calculatePlans(){
  const rows=(result.required||[]).map(l=>{const i=lookup(l.itemId),available=i?.qty==null?null:i.qty-(i.reserved||0);return `<tr><td>${safe(i?.name||l.itemId)}</td><td>${safe(kinds[i?.kind]||'')}</td><td>${num(l.qty)} ${safe(l.unit)}</td><td>${available===null?'미입력':`${i.estimated?'약 ':''}${num(available)} ${safe(l.unit)}`}</td><td>${available===null||(result.issues||[]).some(x=>x.itemId===l.itemId)?'확인 필요':`${num(shortages.get(l.itemId)||0)} ${safe(l.unit)}`}</td></tr>`;}).join('');
  const made=(result.produced||[]).map(l=>`<li>${safe(lookup(l.itemId)?.name||l.itemId)}: ${num(l.qty)} ${safe(l.unit)}</li>`).join('');
  target.innerHTML=`<h3>${safe(titles[result.status]||'확인 필요')}</h3><p>${safe(planDateFilter)} · 계획 ${plans.length}건 합산 · 현재 저장된 레시피 기준 · 손실률 미포함</p><p class="muted">공통 재료는 한 번만 배분합니다. 새로 만들 수량을 기준으로 전체 배합 단위로 올림하여 제안합니다. 수동 예약분은 가용재고에서 제외하며, 다른 날짜의 계획·미연결 주문은 자동 차감하지 않습니다. 이 결과는 납품 확약이 아닙니다.</p>${issues?`<ul class="dangertext">${issues}</ul><p>확인되지 않은 부분은 계산에서 누락될 수 있습니다. 아래는 확인 가능한 범위이며 전체 발주량으로 사용하지 마세요.</p>`:''}<h4>작업·소분 필요량 및 재료 합계</h4><div class="tablewrap"><table class="table"><thead><tr><th>품목 (등록 규격)</th><th>구분</th><th>총 필요량</th><th>현재 가용재고</th><th>부족량</th></tr></thead><tbody>${rows||'<tr><td colspan="5">계산 가능한 재료가 없습니다.</td></tr>'}</tbody></table></div>${made?`<h4>계산상 생산 제안량 (실제 완료 아님)</h4><ul>${made}</ul>`:''}<p class="mini">반제품 추가 생산 모드에서는 반제품과 그 원재료가 함께 표시됩니다. 서로 다른 단계의 수량을 더하지 마세요. 현재 재고가 있는 반제품은 우선 사용하며, 해당 원재료는 다시 차감 계산하지 않습니다.</p>`;
+}
+
+async function downloadStocktake(){
+ try{if(typeof XLSX==='undefined')throw Error('엑셀 도구를 불러오지 못했습니다. 새로고침하세요.');const r=await db.from('stock2_items').select('*').order('name');if(r.error)throw r.error;if((r.data||[]).length>=1000)throw Error('품목 조회 한도에 도달했습니다. 누락 방지를 위해 다운로드를 중단합니다.');XLSX.writeFile(InventoryExcel.workbook(r.data||[],XLSX),`재고체크리스트_${todayKorea()}.xlsx`);}catch(e){toast(e.message||String(e));}
+}
+function uploadStocktake(){
+ modal('엑셀 실재고 업로드','<p>실재고는 보유 총수량으로 대체합니다. 공란은 미변경, 0은 재고 0입니다. 기존 주문·기존 재고는 변경하지 않습니다.</p><input id="mi-file" type="file" accept=".xlsx"><div id="mi-preview"></div>');
+ const form=q('mi-form'),button=q('mi-submit');button.disabled=true;button.textContent='미리보기 확인 후 저장';let changes=null,reading=0;
+ q('mi-file').onchange=async()=>{const token=++reading;changes=null;button.disabled=true;q('mi-preview').innerHTML='';q('mi-error').textContent='';try{
+ const file=q('mi-file').files[0];if(!file)return;if(!/\.xlsx$/i.test(file.name)||file.size>5*1024*1024)throw Error('5MB 이하의 .xlsx 파일을 선택하세요.');
+ if(typeof XLSX==='undefined')throw Error('엑셀 도구 로딩 실패. 새로고침하세요.');
+ const book=XLSX.read(await file.arrayBuffer(),{type:'array',cellFormula:true,cellDates:false}),r=await db.from('stock2_items').select('*');if(r.error)throw r.error;
+ if(token!==reading||q('mi-form')!==form)return;if((r.data||[]).length>=1000)throw Error('품목 조회 한도에 도달했습니다. 누락 방지를 위해 업로드를 중단합니다.');changes=InventoryExcel.read(book,r.data||[],XLSX);
+ q('mi-preview').innerHTML=`<h3>${changes.length}개 품목 변경 예정</h3><p>공란 품목은 변경하지 않습니다. 아래 수량과 단위를 확인하세요.</p><div class="tablewrap"><table class="table"><thead><tr><th>품목</th><th>현재</th><th>변경 후</th><th>메모</th></tr></thead><tbody>${changes.map(c=>`<tr><td>${safe(c.name)}</td><td>${num(c.before)} ${safe(c.unit)}</td><td>${num(c.qty)} ${safe(c.unit)}</td><td>${safe(c.note)}</td></tr>`).join('')}</tbody></table></div>`;button.disabled=false;
+ }catch(e){if(token===reading&&q('mi-form')===form)q('mi-error').textContent=e.message||String(e);}};
+ bindSave(async requestId=>{if(!changes)throw Error('파일 검증이 필요합니다.');if(!confirm(`${changes.length}개 품목을 미리보기의 실재고로 변경할까요? 입고 추가가 아닌 총수량 대체입니다.`))throw Error('저장을 취소했습니다.');q('mi-file').disabled=true;await rpc('stock2_import_stocktake',{p_request:requestId,p_rows:changes.map(({id,unit,version,qty,note})=>({id,unit,version,qty,note}))});});
 }
 
 function moveItem(item){const recipe=snapshot.recipes.find(r=>r.parent_id===item.id),canProduce=item.kind!=='raw'&&recipe?.status==='confirmed';
