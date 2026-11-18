@@ -15,7 +15,7 @@ const path=require('node:path');
  window.captured=[];
  const items=[{id:'p',name:'키트',kind:'product',unit:'개',qty:0,reserved:0,version:1,active:true},{id:'r',name:'식탁보',kind:'raw',unit:'장',qty:8,reserved:0,version:1,active:true}];
  const recipes=[{parent_id:'p',yield_qty:1,status:'confirmed',lines:[{itemId:'r',qty:.25,rounding:'ceil'}]}];
- window.db={from:table=>{const response={data:table==='stock2_items'?items:table==='stock2_recipes'?recipes:[]};const chain={select:()=>chain,order:()=>chain,limit:()=>chain,then:resolve=>Promise.resolve(response).then(resolve)};return chain;},rpc:async(name,args)=>{window.captured.push({name,args});return {data:{ok:true}};}};
+ window.db={from:table=>{const response={data:table==='stock2_items'?items:table==='stock2_recipes'?recipes:[]};const chain={select:()=>chain,order:()=>chain,eq:()=>chain,limit:()=>chain,then:resolve=>Promise.resolve(response).then(resolve)};return chain;},rpc:async(name,args)=>{window.captured.push({name,args});return {data:{ok:true}};}};
  });
  await page.addScriptTag({path:path.resolve(__dirname,'../scripts/inventory_planner.js')});
  await page.addScriptTag({path:path.resolve(__dirname,'../scripts/material_inventory_ui.js')});

@@ -33,7 +33,7 @@ grant select on public.stock2_items,public.stock2_recipes,public.stock2_events t
 create function private.stock2_save_item(p_payload jsonb) returns uuid language plpgsql security definer set search_path='' as $$
 declare v_id uuid; v_old public.stock2_items%rowtype;
 begin
- if not private.is_admin() then raise exception '관리자 권한이 필요합니다'; end if;
+ if private.is_admin() is not true then raise exception '관리자 권한이 필요합니다'; end if;
  perform pg_advisory_xact_lock(20261118,2);
  v_id := coalesce(nullif(p_payload->>'id','')::uuid,gen_random_uuid());
  select * into v_old from public.stock2_items where id=v_id;
@@ -50,7 +50,7 @@ end $$;
 create function private.stock2_save_recipe(p_parent uuid,p_yield numeric,p_lines jsonb,p_status text,p_expected_version integer) returns void language plpgsql security definer set search_path='' as $$
 declare v_parent public.stock2_items%rowtype; v_child public.stock2_items%rowtype; v_line jsonb; v_seen uuid[]='{}'; v_id uuid; v_qty numeric;
 begin
- if not private.is_admin() then raise exception '관리자 권한이 필요합니다'; end if;
+ if private.is_admin() is not true then raise exception '관리자 권한이 필요합니다'; end if;
  perform pg_advisory_xact_lock(20261118,2);
  select * into v_parent from public.stock2_items where id=p_parent;
  if not found or v_parent.kind='raw' then raise exception '반제품 또는 제품만 레시피를 가질 수 있습니다'; end if;
@@ -74,7 +74,7 @@ end $$;
 create function private.stock2_move(p_request uuid,p_item uuid,p_mode text,p_qty numeric,p_reason text,p_inputs jsonb,p_expected_version integer) returns uuid language plpgsql security definer set search_path='' as $$
 declare v_item public.stock2_items%rowtype; v_child public.stock2_items%rowtype; v_recipe public.stock2_recipes%rowtype; v_event public.stock2_events%rowtype; v_line jsonb; v_input jsonb; v_amount numeric; v_new numeric; v_changes jsonb='[]'; v_payload jsonb; v_count integer;
 begin
- if not private.is_admin() then raise exception '관리자 권한이 필요합니다'; end if;
+ if private.is_admin() is not true then raise exception '관리자 권한이 필요합니다'; end if;
  if p_request is null then raise exception '요청 식별자가 필요합니다'; end if;
  perform pg_advisory_xact_lock(20261118,2);
  v_payload:=jsonb_build_object('item',p_item,'mode',p_mode,'qty',p_qty,'reason',p_reason,'inputs',p_inputs,'version',p_expected_version);

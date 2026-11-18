@@ -15,7 +15,7 @@ Immediate additional assembly uses existing component stock minus manual reserva
 
 ## Deployment gate
 1. Review SQL and verify admin authorization on a staging project.
-2. Apply additive SQL before publishing `admin.html` and the two scripts.
+2. Apply `supabase/material_inventory_v2.sql`, then `supabase/material_production_plans.sql` to an isolated staging database before publishing `admin.html` and the two scripts.
 3. Browser-test authorized/non-admin sessions, navigation/modal saves, mobile view, purchase conversion, production rollback, retry, and stock count entry.
 4. Import a private, reviewed catalog only through authorized paths; never commit recipe data or real customer information to this public repository.
 5. Start with blank counts and draft recipes. Enter real counts and confirm recipes before relying on capacity.
@@ -32,3 +32,23 @@ Not deployed: local PostgreSQL-compatible checks are not a replacement for authe
 
 ## Rollback
 Remove the materials menu, route, and script includes to hide the module. Preserve new tables/events for audit; do not drop or rewrite legacy inventory. No order triggers are installed.
+
+
+## Date-based production plans (test branch only)
+- A plan stores a Korea-local calendar date, one or more semi/product targets, new-production quantities, a short memo, and planned/cancelled state.
+- Plan save/edit/cancel has NO inventory effect. Production completion remains a separate actual-use transaction. There is no automatic order linkage, stock reservation or completion based on the plan.
+- Daily calculation combines all loaded planned rows for one date and shares one component stock ledger. Target finished stock is ignored because the user is specifying new production, not a delivery demand.
+- Immediate mode uses existing raw/semi stock only. Optional recursive mode produces missing semi items using confirmed recipes. Missing stock/recipes are explicitly unknown; no hidden assumption of zero stock.
+- Current saved recipes are used each time, with whole batches and no inferred loss. Results are not a historical recipe snapshot or shipment promise. Other days' plans and outstanding orders are NOT automatically deducted; manual reservations are deducted.
+- Query is filtered by date server-side. At 1,000 rows the UI refuses aggregate calculation instead of showing a potentially incomplete total.
+- Admin-only read/RPC; optimistic version checks prevent overwrites. Request IDs make exact retries idempotent; a changed payload after an ambiguous network response is blocked.
+- New SQL is a reviewable draft setup script, NOT applied to any hosted database. No actual recipes or customer records are seeded.
+
+## Verification update
+- Production-plan DB suite: 34 checks passed in isolated PGlite (admin/non-admin/no-identity access, dates, quantities, duplicate targets, exact retries, stale edits, cancellation and unchanged inventory).
+- Production-plan DOM suite: 40 checks passed in JSDOM (create/edit/cancel, date query, shared materials, recursive option, unknowns, cap, escaping, ambiguous retry, unchanged stock).
+- Existing local DB suite: rerun separately before release. UI and lifecycle/pure suites remain required.
+- Chromium could not start due `socket() failed: Operation not permitted` even with a temporary home. This is NOT a real-browser or visual QA pass. Authenticated Supabase/PostgREST integration also remains untested.
+- SQL checks now fail closed when `private.is_admin()` is NULL, rather than allowing a no-identity authenticated role past the write guard.
+
+Test dependencies may be installed outside the repository. Run with `PGLITE_MODULE=/absolute/path/to/@electric-sql/pglite` and `JSDOM_MODULE=/absolute/path/to/jsdom` for the respective suites. Never point tests at production credentials.
