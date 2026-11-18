@@ -102,7 +102,7 @@ assert.equal(donut.ingredients.find(r=>r.name==='초코펜 (랜덤 1종)').quant
 assert.equal(donut.supplies.filter(r=>r.name==='종이컵').length,1);
 assert.equal(donut.supplies.find(r=>r.name==='종이컵').quantity,30);
 const puff=m.calculate({name:'뻥스케이크',quantity:30});
-assert.equal(puff.supplies.find(r=>r.name==='교안(토퍼·꼬깔 + 이쑤시개 3개) OPP').quantity,30);
+assert.equal(puff.supplies.find(r=>r.name==='교안(토퍼·꼬깔 + 이쑤시개 4개) OPP').quantity,30);
 assert(!puff.supplies.some(r=>r.name==='이쑤시개'));
 const dumpling=m.calculate({name:'경단',quantity:30});
 assert.equal(dumpling.supplies.find(r=>r.name==='계량컵 (30mL)').quantity,30);
@@ -121,10 +121,10 @@ assert(!house60.ingredients.some(x=>x.name==='웨하스'));
 console.log('Wafer bundle verified: 60 house kits => 웨하스(8개) 60개, not loose-piece count.');
 
 const puff60=m.calculate({name:'뻥스케이크',quantity:60});
-assert.equal(puff60.supplies.find(r=>r.name==='교안(토퍼·꼬깔 + 이쑤시개 3개) OPP').quantity,60);
+assert.equal(puff60.supplies.find(r=>r.name==='교안(토퍼·꼬깔 + 이쑤시개 4개) OPP').quantity,60);
 assert(!puff60.supplies.some(r=>r.name==='이쑤시개'));
-assert(m.render({name:'뻥스케이크',quantity:60}).includes('교안(토퍼·꼬깔 + 이쑤시개 3개) OPP 60개'));
-assert(m.renderPacking([{name:'뻥스케이크',quantity:60}],{}).includes('교안(토퍼·꼬깔 + 이쑤시개 3개) OPP <b>60개</b>'));
+assert(m.render({name:'뻥스케이크',quantity:60}).includes('교안(토퍼·꼬깔 + 이쑤시개 4개) OPP 60개'));
+assert(m.renderPacking([{name:'뻥스케이크',quantity:60}],{}).includes('교안(토퍼·꼬깔 + 이쑤시개 4개) OPP <b>60개</b>'));
 console.log('Topper/cone/toothpick OPP bundle: 60 kits => 60 packs; no duplicate toothpick item.');
 
 for(const name of names){

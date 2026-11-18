@@ -1139,7 +1139,7 @@ async function saveMLPartnerRow(){
  try{const {error}=await db.rpc('admin_update_ml_row',{p_row_id:d.id,p_expected:d.expected,p_expected_updated_at:d.updated,p_input:Array.from({length:8},(_,i)=>$('ml-edit-'+i).value)});if(error)throw error;closeModal();await loadAll();await renderPartnerOrders(state.page==='requests');toast('ML 주문 수정 완료');}catch(e){toast(e.message);}finally{if(b.isConnected)b.disabled=false;}
 }
 </script>
-<script src="scripts/order_materials.js?v=20261118-cupcake-three-colors"></script>
+<script src="scripts/order_materials.js?v=20261118-toothpick-four"></script>
 <script src="scripts/order_documents.js?v=20261116-packing-v1"></script>
 <script src="scripts/admin_order_import_core.js?v=20261103"></script>
 <script src="scripts/admin_order_import.js?v=20261103"></script>
