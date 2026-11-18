@@ -52,3 +52,13 @@ Remove the materials menu, route, and script includes to hide the module. Preser
 - SQL checks now fail closed when `private.is_admin()` is NULL, rather than allowing a no-identity authenticated role past the write guard.
 
 Test dependencies may be installed outside the repository. Run with `PGLITE_MODULE=/absolute/path/to/@electric-sql/pglite` and `JSDOM_MODULE=/absolute/path/to/jsdom` for the respective suites. Never point tests at production credentials.
+
+## Excel stocktake (schema v1)
+- Deploy `supabase/material_inventory_excel.sql` before publishing the UI.
+- `재고입력` sheet, first-row headers: `품목ID | 분류 | 품목명 | 기준단위 | 현재재고 | 실재고 | 메모 | 버전`.
+- Download fetches fresh active inventory, not the filtered table. Only actual-stock and event-note columns are editable. Additional instruction/print sheets are ignored.
+- Blank actual-stock skips the item; zero replaces stock with zero. This is stocktake, not additive receipt. Legacy inventory/orders, reservations and recipes are not modified.
+- Maximum 5MB .xlsx / 2,000 item rows; no formulas/links in input sheet; kg ≤6 decimals, count units integers. Validate stable ID, kind/name/unit, duplicates and optimistic version. Partial files accepted, unknown rows rejected.
+- Upload preview performs no writes. Confirmation sends one admin-only RPC; shared inventory advisory lock serializes changes. Any row failure rolls back the whole batch. Request UUID and exact payload ensure safe retries. One batch audit event records every item's before/after and notes; UI expands the event detail.
+- A stale file is rejected, never automatically rebased. Download again after edits. A network-uncertain save must retry the same payload/request; do not issue a new request without checking history.
+- No production stock edits are required to deploy or test. Tests use anonymous fixtures and isolated PGlite/JSDOM.
