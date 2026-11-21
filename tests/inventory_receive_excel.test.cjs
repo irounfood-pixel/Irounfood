@@ -1,0 +1,14 @@
+const assert=require('node:assert/strict'), {validate,HEADERS,spec}=require('../scripts/inventory_receive_excel.js');
+const bread={id:'a',name:'식빵',kind:'raw',unit:'개',estimated:false,purchase_unit:'봉',purchase_factor:'20',qty:12,version:4};
+const jam={id:'b',name:'잼',kind:'raw',unit:'kg',purchase_unit:'통',purchase_factor:15,qty:0.2,version:3};
+const pack={id:'c',name:'반제품',kind:'semi',unit:'세트',qty:3,version:1};
+const kit={id:'d',name:'제품',kind:'product',unit:'개',qty:0,version:1};
+const a=['a','원재료·구매품','식빵','봉',2,null,'',12,'',4], b=['b','원재료·구매품','잼','kg',null,0.5,'',0.2,'',3];
+const c=['c','반제품','반제품','세트',3,null,'',3,'',1],d=['d','제품','제품','개',1,null,'',0,'',1];
+const v=(...rows)=>validate([HEADERS,...rows],[bread,jam,pack,kit]);
+assert.deepEqual(v(a,b,c,d).map(r=>[r.qty,r.after]),[[40,52],[0.5,0.7],[3,6],[1,1]]);
+assert.deepEqual(spec({...bread,estimated:true}),{unit:'개',factor:1});
+for(const r of [[...a.slice(0,5),1,...a.slice(6)],[...a.slice(0,4),0,...a.slice(5)],[...a.slice(0,4),2.5,...a.slice(5)],[...a.slice(0,9),3]])assert.throws(()=>v(r));
+assert.throws(()=>v(a,a),/중복/);
+assert.throws(()=>validate([HEADERS,a],[{...bread,qty:null}]),/실사/);
+assert.equal(v(a,['b']).length,1);
