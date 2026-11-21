@@ -106,3 +106,9 @@
  .mi-screen .mi-stock-table td[data-label]::before{content:attr(data-label);display:block;color:#43596f;font-size:.76rem}
  .mi-screen .mi-row-actions .btn{min-height:44px}
 }
+/* Inventory recipe cards */
+#mi-recipe-list{margin-top:.85rem}
+#mi-recipe-list details{border:1px solid var(--line);border-radius:10px;padding:.15rem .85rem .45rem}
+#mi-recipe-list summary{padding:.7rem 0;line-height:1.5}
+#mi-recipe-list details .btn{margin:.65rem 0 .2rem}
+#mi-recipe-list .tablewrap{margin-top:.15rem}
