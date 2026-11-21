@@ -79,32 +79,20 @@
 
 /* First-use inventory screen */
 .mi-screen .top p{margin:.4rem 0 0;max-width:48rem}
-.mi-quick{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.7rem;margin:0 0 1rem}
-.mi-quick .btn{text-align:left;white-space:normal;line-height:1.4;min-height:65px;padding:.75rem .9rem}
-.mi-quick strong,.mi-quick span{display:block}
-.mi-quick strong{font-size:1rem}
-.mi-quick span{font-size:.82rem;font-weight:400;margin-top:.2rem}
-.mi-nav{display:flex;flex-wrap:wrap;gap:.5rem;margin:0 0 .65rem}
-.mi-nav .btn{min-height:44px}
-.mi-nav .btn[aria-pressed="true"]{background:#254971;color:white}
 .mi-screen [hidden]{display:none!important}
 .mi-screen details{margin-top:.75rem}
 .mi-screen summary{cursor:pointer;padding:.6rem 0;font-weight:600}
 .mi-screen :focus-visible{outline:2px solid #2265a2;outline-offset:2px}
-.mi-row-actions .btn{margin:.2rem .1rem}
 .mi-screen .mi-stock-table{min-width:0}
 @media(max-width:680px){
- .mi-quick{grid-template-columns:minmax(0,1fr);gap:.4rem}
- .mi-quick .btn{min-height:52px}
  .mi-filters{display:grid;grid-template-columns:auto minmax(0,1fr)}
  .mi-filters input,.mi-filters select{width:100%;min-width:0}
  .mi-screen .mi-stock-table thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
  .mi-screen .mi-stock-table,.mi-screen .mi-stock-table tbody{display:block}
  .mi-screen .mi-stock-table tr{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);padding:.58rem;border:1px solid #dce5ee;border-radius:.55rem;margin-bottom:.55rem}
  .mi-screen .mi-stock-table td{border:none;overflow-wrap:anywhere;padding:.4rem}
- .mi-screen .mi-stock-table td:first-child,.mi-screen .mi-stock-table .mi-row-actions{grid-column:1/-1}
+ .mi-screen .mi-stock-table td:first-child{grid-column:1/-1}
  .mi-screen .mi-stock-table td[data-label]::before{content:attr(data-label);display:block;color:#43596f;font-size:.76rem}
- .mi-screen .mi-row-actions .btn{min-height:44px}
 }
 /* Inventory recipe cards */
 #mi-recipe-list{margin-top:.85rem}
@@ -112,3 +100,24 @@
 #mi-recipe-list summary{padding:.7rem 0;line-height:1.5}
 #mi-recipe-list details .btn{margin:.65rem 0 .2rem}
 #mi-recipe-list .tablewrap{margin-top:.15rem}
+
+.mi-top-actions{display:flex;flex-wrap:wrap;align-items:center;gap:.6rem;margin:0 0 .75rem}
+.mi-top-actions #mi-more{position:relative;margin:0}
+.mi-top-actions #mi-more summary{min-height:44px;padding:.65rem .8rem;border:1px solid var(--line);border-radius:.55rem;background:#fff}
+.mi-more-menu{position:absolute;top:100%;left:0;z-index:5;min-width:11rem;max-width:calc(100vw - 2rem);padding:.35rem;background:#fff;border:1px solid var(--line);border-radius:.55rem;box-shadow:0 .25rem .8rem #19263522}
+.mi-more-menu .btn{display:block;width:100%;text-align:left;min-height:44px}
+.mi-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.mi-screen .mi-stock-list{min-width:0}
+.mi-stock-list th:last-child,.mi-stock-list td:last-child{text-align:right}
+.mi-stock-list .mi-name{min-height:38px;display:inline-block;padding:.1rem 0;text-align:left;color:#23466b;font-size:inherit;font-weight:700;background:none;border:0;white-space:normal;overflow-wrap:anywhere;cursor:pointer}
+.mi-stock-list .mi-onhand{font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums}
+.mi-record-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.6rem}
+.mi-record-options select{width:100%;min-width:0}
+.mi-file-steps{display:flex;flex-wrap:wrap;align-items:center;gap:.6rem;padding:.65rem;margin:.6rem 0;border:1px solid var(--line);border-radius:.65rem}
+.mi-file-steps .field{margin:0;min-width:0;max-width:100%}
+.mi-file-steps input{max-width:100%}
+@media(max-width:600px){
+ .mi-screen .mi-filters{grid-template-columns:minmax(0,1fr) minmax(0,.78fr)}
+ .mi-record-options{grid-template-columns:1fr}
+ .mi-stock-list .mi-name{min-height:44px}
+}
