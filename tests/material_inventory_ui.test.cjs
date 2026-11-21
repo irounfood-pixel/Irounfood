@@ -49,6 +49,16 @@ const path=require('node:path');
  await page.locator('#mi-plan-add').waitFor();
  await page.getByRole('button',{name:'변경 이력',exact:true}).click();
  assert.equal(await page.locator('#mi-history').isVisible(),true);
+ await page.getByRole('button',{name:'레시피',exact:true}).click();
+ assert.equal(await page.locator('#mi-recipes').isVisible(),true);
+ assert.match(await page.locator('[data-mi-recipe-card="p"] summary').innerText(),/확정/);
+ await page.locator('[data-mi-recipe-card="p"] summary').click();
+ assert.match(await page.locator('[data-mi-recipe-card="p"]').innerText(),/0.25.*올림/);
+ for(const kind of ['raw','semi','product']){
+  await page.locator('[data-mi-add-kind='+kind+']').click();
+  assert.equal(await page.locator('#mi-kind').inputValue(),kind);
+  await page.locator('#mi-close').click();
+ }
  await page.getByRole('button',{name:'재고 확인',exact:true}).click();
  assert.deepEqual(await page.evaluate(()=>window.captured),[]);
  await page.locator('#mi-filter').selectOption('');

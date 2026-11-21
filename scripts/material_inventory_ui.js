@@ -6,7 +6,8 @@ const q=id=>document.getElementById(id);
 const num=n=>n===null||n===undefined?'미입력':Number(n).toLocaleString('ko-KR',{maximumFractionDigits:6});
 const kinds={raw:'원재료·구매품',semi:'반제품',product:'제품'};
 let activeView='stock',stockFilter='',stockSearch='',showSettings=false;
-const views={stock:'재고 확인',ledger:'원재료 입출고일지',plans:'생산계획',history:'변경 이력'};
+const views={stock:'재고 확인',ledger:'원재료 입출고일지',recipes:'레시피',plans:'생산계획',history:'변경 이력'};
+let recipeKind='product',recipeSearch='',recipeOpen=null;
 const isKgRaw=i=>i?.kind==='raw'&&i.unit==='kg';
 const safe=v=>esc(String(v??''));
 const options=(items,selected)=>items.map(i=>`<option value="${safe(i.id)}" ${selected===i.id?'selected':''}>${safe(i.name)} (${safe(i.unit)})</option>`).join('');
@@ -45,6 +46,7 @@ function draw(){
  <div class="tablewrap"><table class="table mi-stock-table"><thead><tr><th>품목 / 입고규격</th><th>종류</th><th>보유 재고</th><th>예약 제외 재고</th><th>추가로 만들 수량</th><th>기록</th></tr></thead><tbody id="mi-rows"></tbody></table></div></div>
  </section>
  <section id="mi-ledger" aria-label="원재료 입출고일지"></section>
+ <section id="mi-recipes" aria-label="레시피"></section>
  <section id="mi-plans" aria-label="생산계획"></section>
  <section id="mi-history" aria-label="변경 이력">
  <div class="panel"><h2>최근 변경 이력</h2><div class="tablewrap"><table class="table"><thead><tr><th>일시</th><th>품목</th><th>작업</th><th>입력수량</th><th>사유</th></tr></thead><tbody>${snapshot.events.map(e=>`<tr><td>${safe(new Date(e.created_at).toLocaleString('ko-KR'))}</td><td>${safe(snapshot.items.find(i=>i.id===e.item_id)?.name||e.item_id)}</td><td>${safe(({receive:'입고',set:'실사',reserve:'수동예약',issue:'출고',produce:'생산',stocktake_import:'엑셀 실사'})[e.mode]||e.mode)}</td><td>${e.mode==='stocktake_import'?`${(e.changes||[]).length}개 품목`:num(e.qty)}</td><td>${safe(e.reason)}${e.mode==='stocktake_import'?`<details><summary>품목별 변경 내역</summary>${(e.changes||[]).map(c=>`<div>${safe(snapshot.items.find(i=>i.id===c.id)?.name||c.id)}: ${num(c.before)} → ${num(c.after)} ${safe(snapshot.items.find(i=>i.id===c.id)?.unit||'')} ${safe(c.note||'')}</div>`).join('')}</details>`:''}</td></tr>`).join('')||'<tr><td colspan="5">아직 변경 이력이 없습니다.</td></tr>'}</tbody></table></div></div></section>
@@ -63,6 +65,7 @@ function draw(){
 function switchView(view){
  activeView=view;
  if(view==='ledger'&&!q('mi-ledger-add'))drawLedger();
+ if(view==='recipes'&&!q('mi-recipe-list'))drawRecipeSection();
  Object.keys(views).forEach(id=>q('mi-'+id).hidden=id!==view);
  document.querySelectorAll('[data-mi-view]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.miView===view)));
 }
@@ -123,6 +126,33 @@ function drawLedger(){
  q('mi-ledger-out').onclick=()=>chooseItem('issue',true);
  q('mi-ledger-count').onclick=()=>chooseItem('set',true);
 }
+function drawRecipeSection(){
+ q('mi-recipes').innerHTML=`<div class="panel"><h2>레시피 관리</h2>
+ <p>먼저 필요한 품목을 등록한 다음 제품이나 반제품에 재료를 연결하세요. 원재료에는 레시피를 붙이지 않습니다.</p>
+ <div class="toolbar" id="mi-recipe-create">${Object.entries(kinds).map(([kind,label])=>`<button class="btn ${kind==='product'?'primary':'secondary'}" data-mi-add-kind="${kind}">+ ${label} 등록</button>`).join('')}</div>
+ <p class="mini">확정된 레시피만 생산 가능 수량에 사용됩니다. 배합 수량이 없으면 확인 중으로 남겨 두세요. 이 메뉴는 재고 관리용이며 판매 상품은 상품관리에서 별도로 등록합니다.</p>
+ <div class="toolbar mi-filters"><label for="mi-recipe-search">품목 찾기</label><input id="mi-recipe-search" placeholder="예: 도넛, 생과자반죽" value="${safe(recipeSearch)}"><label for="mi-recipe-kind">종류</label><select id="mi-recipe-kind">${Object.entries(kinds).map(([k,l])=>`<option value="${k}" ${recipeKind===k?'selected':''}>${l}</option>`).join('')}</select></div>
+ <div id="mi-recipe-list"></div></div>`;
+ q('mi-recipe-create').querySelectorAll('button').forEach(b=>b.onclick=()=>editItem(null,b.dataset.miAddKind));
+ q('mi-recipe-kind').onchange=()=>{recipeKind=q('mi-recipe-kind').value;recipeOpen=null;drawRecipeList();};
+ q('mi-recipe-search').oninput=()=>{recipeSearch=q('mi-recipe-search').value;drawRecipeList();};
+ drawRecipeList();
+}
+function drawRecipeList(){
+ const target=q('mi-recipe-list'), search=recipeSearch.trim().toLowerCase();
+ const names=new Map(snapshot.items.map(i=>[i.id,i]));
+ const recipes=new Map(snapshot.recipes.map(r=>[r.parent_id,r]));
+ target.innerHTML=snapshot.items.filter(i=>i.active!==false&&i.kind===recipeKind&&i.name.toLowerCase().includes(search)).map(i=>{
+  const r=recipes.get(i.id), lines=r?.lines||[];
+  const status=r?.status==='confirmed'?'확정':r&&lines.length?'확인 중':'미등록';
+  if(i.kind==='raw')return `<div class="product-card"><div><b>${safe(i.name)}</b><div class="mini">기준 단위: ${safe(i.unit)}${i.purchase_unit?' · 입고: '+safe(i.purchase_unit):''}</div></div><button class="btn light" data-mi-spec-id="${safe(i.id)}">품목 설정</button></div>`;
+  return `<details data-mi-recipe-card="${safe(i.id)}" ${i.id===recipeOpen?'open':''}><summary><strong>${safe(i.name)}</strong> · ${status} <span class="mini">${r?.yield_qty==null?'':`· ${num(r.yield_qty)} ${safe(i.unit)} 기준`}</span></summary>
+  <div class="tablewrap"><table class="table mi-stock-table"><thead><tr><th>재료</th><th>종류</th><th>필요량</th></tr></thead><tbody>${lines.map(l=>{const c=names.get(l.itemId);return `<tr><td>${safe(c?.name||'누락된 품목')}</td><td data-label="종류">${safe(kinds[c?.kind]||'')}</td><td data-label="필요량">${l.qty==null?'확인 필요':`${num(l.qty)} ${safe(c?.unit||'')}${c?.unit==='kg'&&Number(l.qty)<1?` (${num(Number(l.qty)*1000)}g)`:''}${l.rounding==='ceil'?' · 올림':''}`}</td></tr>`;}).join('')||'<tr><td colspan="3">아직 연결된 재료가 없습니다.</td></tr>'}</tbody></table></div>
+  <button class="btn secondary" data-mi-edit-recipe-id="${safe(i.id)}">${lines.length?'레시피 수정':'레시피 입력'}</button></details>`;
+ }).join('')||'<p>해당 품목이 없습니다. 새 품목을 등록하거나 검색어를 바꿔보세요.</p>';
+ target.querySelectorAll('[data-mi-edit-recipe-id]').forEach(b=>b.onclick=()=>{recipeOpen=b.dataset.miEditRecipeId;editRecipe(names.get(recipeOpen));});
+ target.querySelectorAll('[data-mi-spec-id]').forEach(b=>b.onclick=()=>editItem(names.get(b.dataset.miSpecId)));
+}
 function modal(title,body){openModal(`<div class="between"><h2>${title}</h2><button class="btn light" id="mi-close">닫기</button></div><form id="mi-form">${body}<p id="mi-error" role="alert" class="dangertext"></p><button class="btn primary" id="mi-submit" type="submit">저장</button></form>`);q('mi-close').onclick=closeModal;}
 function bindSave(handler){
  let busy=false;
@@ -149,11 +179,11 @@ async function rpc(name,args){
  if(key)pendingRequests.delete(key);return r.data;
 }
 function number(id,allowBlank=false){const v=q(id).value.trim();if(!v&&allowBlank)return null;if(!v||!Number.isFinite(Number(v)))throw Error('수량을 숫자로 입력해 주세요.');return Number(v);}
-function editItem(item){modal(item?'품목 사양 수정':'새 품목',`<div class="formgrid">${field('품목명 *','mi-name',item?.name||'')}
- <div class="field"><label>구분</label><select id="mi-kind">${Object.entries(kinds).map(([v,n])=>`<option value="${v}" ${item?.kind===v?'selected':''}>${n}</option>`).join('')}</select></div><div class="field"><label>기본 재고단위</label><select id="mi-unit">${['kg','개','봉','세트','팩','장','쌍','롤'].map(u=>`<option ${item?.unit===u?'selected':''}>${u}</option>`).join('')}</select></div>
+function editItem(item,initialKind){modal(item?'품목 사양 수정':'새 품목',`<div class="formgrid">${field('품목명 *','mi-name',item?.name||'')}
+ <div class="field"><label>구분</label><select id="mi-kind">${Object.entries(kinds).map(([v,n])=>`<option value="${v}" ${(item?.kind||initialKind)===v?'selected':''}>${n}</option>`).join('')}</select></div><div class="field"><label>기본 재고단위</label><select id="mi-unit">${['kg','개','봉','세트','팩','장','쌍','롤'].map(u=>`<option ${item?.unit===u?'selected':''}>${u}</option>`).join('')}</select></div>
  ${field('구매·입고단위 이름 (예: 1kg 1봉)','mi-punit',item?.purchase_unit||'')}${field('입고단위 1당 기본단위 수량','mi-factor',item?.purchase_factor??'','number','step="0.000001" min="0"')}<div class="field"><label><input type="checkbox" id="mi-estimate" ${item?.estimated?'checked':''}> 수량 환산은 추정치 (예: 소시지 약 40개)</label></div><div class="field"><label>메모</label><textarea id="mi-notes">${safe(item?.notes||'')}</textarea></div></div><p class="muted">사양 저장은 입고 처리가 아닙니다. 통상 구매량 1,000개를 현재 재고로 자동 입력하지 않습니다.</p>`);
  if(item){q('mi-kind').disabled=true;q('mi-unit').disabled=true;}
- bindSave(async()=>{const name=q('mi-name').value.trim();if(!name)throw Error('품목명을 입력해 주세요.');await rpc('stock2_save_item',{p_payload:{id:item?.id||null,name,kind:q('mi-kind').value,unit:q('mi-unit').value,purchase_unit:q('mi-punit').value.trim(),purchase_factor:number('mi-factor',true),estimated:q('mi-estimate').checked,notes:q('mi-notes').value.trim(),expected_version:item?.version??null}});});
+ bindSave(async()=>{const name=q('mi-name').value.trim();if(!name)throw Error('품목명을 입력해 주세요.');const kind=q('mi-kind').value;const saved=await rpc('stock2_save_item',{p_payload:{id:item?.id||null,name,kind,unit:q('mi-unit').value,purchase_unit:q('mi-punit').value.trim(),purchase_factor:number('mi-factor',true),estimated:q('mi-estimate').checked,notes:q('mi-notes').value.trim(),expected_version:item?.version??null}});if(initialKind&&state.page==='materials'&&activeView==='recipes'){recipeKind=kind;recipeSearch=name;recipeOpen=typeof saved==='string'?saved:null;}});
 }
 function editRecipe(item){const recipe=snapshot.recipes.find(r=>r.parent_id===item.id),eligible=snapshot.items.filter(i=>i.active!==false&&i.id!==item.id&&i.kind!=='product');
  modal(`${safe(item.name)} 레시피`,`${field(`1배합 생산량 (${safe(item.unit)})`,'mi-yield',recipe?.yield_qty??'','number','min="0" step="0.000001"')}<div class="field"><label>상태</label><select id="mi-status"><option value="draft">확인 중 (계산에 사용 안 함)</option><option value="confirmed" ${recipe?.status==='confirmed'?'selected':''}>확정</option></select></div><div id="mi-lines"></div><button class="btn secondary" id="mi-addline" type="button">+ 재료 추가</button><p class="muted">재료 수량은 기본단위 기준입니다. 15g은 0.015kg입니다. 식탁보처럼 4인당 1개는 0.25와 올림을 선택하세요. 실제 배합량이 없는 레시피는 확인 중으로 저장하세요.</p>`);
