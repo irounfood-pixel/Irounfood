@@ -36,11 +36,11 @@ test('kg ledger records actual quantities and refreshes separate dispatch and pr
  assert.match(txt(),/2026\. 11\. 21/);
  const submit=()=>q('mi-form').onsubmit({preventDefault(){}});
  const pick=async(id)=>{q('mi-pick-item').value=id;await submit();};
- q('mi-ledger-add').click();
- assert.deepEqual([...q('mi-pick-item').options].map(o=>o.value),['','r','u']);
+ assert.equal(q('mi-ledger-add'),null);assert.equal(q('mi-ledger-count'),null);
+ q('mi-record').click();q('mi-record-mode').value='receive';q('mi-record-mode').dispatchEvent(new w.Event('change'));
  await pick('u');assert.match(q('mi-error').textContent,/먼저 실사/);
- await pick('r');assert.equal(q('mi-mode').value,'receive');assert.equal(q('mi-mode').disabled,true);
- assert.equal(q('mi-entrywrap').style.display,'none');
+ await pick('r');assert.equal(q('mi-mode').value,'receive');assert.equal(q('mi-mode').disabled,false);
+ assert.equal(q('mi-entryunit').value,'base');
  q('mi-qty').value='0.5';q('mi-reason').value='입고 테스트';await submit();
  assert.equal(calls[0].name,'stock2_move');assert.equal(calls[0].args.p_qty,.5);assert.match(txt(),/테스트 키트4 개12 개/);assert.match(txt(),/입고\+0.5 kg2.5 kg/);
  q('mi-ledger-out').click();await pick('r');assert.equal(q('mi-mode').value,'issue');

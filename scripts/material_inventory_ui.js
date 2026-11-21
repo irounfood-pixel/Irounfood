@@ -5,7 +5,7 @@ let snapshot={items:[],recipes:[],events:[],plans:[]}, generation=0;
 const q=id=>document.getElementById(id);
 const num=n=>n===null||n===undefined?'미입력':Number(n).toLocaleString('ko-KR',{maximumFractionDigits:6});
 const kinds={raw:'원재료·구매품',semi:'반제품',product:'제품'};
-let activeView='stock',stockFilter='',stockSearch='',showSettings=false;
+let activeView='stock',stockFilter='',stockSearch='',moreOpen=false;
 const views={stock:'재고 확인',ledger:'원재료 입출고일지',recipes:'레시피',plans:'생산계획',history:'변경 이력'};
 let recipeKind='product',recipeSearch='',recipeOpen=null;
 const isKgRaw=i=>i?.kind==='raw'&&i.unit==='kg';
@@ -32,60 +32,83 @@ window.renderMaterialInventory=async function(){
  }catch(e){if(token!==generation || state.page!=='materials')return;q('page').innerHTML=`<div class="panel"><h2>재고 화면을 불러오지 못했어요</h2><p>${safe(e.message||e)}</p><p>기존 주문과 기존 재고는 변경되지 않았습니다.</p><button class="btn secondary" id="mi-retry">다시 확인</button></div>`;q('mi-retry').onclick=window.renderMaterialInventory;}
 };
 function draw(){
- q('page').innerHTML=`<div class="mi-screen"><div class="top"><div><h1>재고 관리</h1><p>먼저 품목을 찾아 남은 수량을 확인하세요. 새로 들어온 재료는 <b>입고 기록</b>에 입력하세요.</p></div><button class="btn secondary" id="mi-refresh">새로고침</button></div>
- <div class="mi-quick">
- <button class="btn primary" id="mi-receive"><strong>입고 기록</strong><span>새로 들어온 수량을 더해요</span></button>
- <button class="btn secondary" id="mi-count"><strong>실사 수량 입력</strong><span>창고에서 센 전체 수량으로 맞춰요</span></button>
- <button class="btn secondary" id="mi-capacity"><strong>만들 수 있는 수량</strong><span>현재 재료로 추가 조립할 수 있는 제품을 봐요</span></button>
+ q('page').innerHTML=`<div class="mi-screen"><div class="top"><h1>재고 관리</h1></div>
+ <div class="mi-top-actions">
+  <button class="btn primary" id="mi-record" type="button">재고 입력</button>
+  <details id="mi-more"><summary>더보기</summary><nav class="mi-more-menu" aria-label="재고 관리 메뉴">
+   ${Object.entries(views).map(([id,label])=>`<button class="btn light" type="button" data-mi-view="${id}" aria-controls="mi-${id}">${label}</button>`).join('')}
+   <button class="btn light" id="mi-add" type="button">품목 등록</button><button class="btn light" id="mi-refresh" type="button">새로고침</button>
+  </nav></details>
  </div>
- <nav class="mi-nav" aria-label="재고 관리 메뉴">${Object.entries(views).map(([id,label])=>`<button class="btn light" type="button" data-mi-view="${id}" aria-controls="mi-${id}">${label}</button>`).join('')}</nav>
  <section id="mi-stock" aria-label="재고 확인">
- <div class="panel"><div class="toolbar mi-filters"><label for="mi-search">품목 찾기</label><input id="mi-search" placeholder="예: 웨하스, 도넛"><label for="mi-filter">종류</label><select id="mi-filter"><option value="">전체</option>${Object.entries(kinds).map(([v,n])=>`<option value="${v}">${n}</option>`).join('')}</select></div>
- <p class="mini">재고 미입력은 0이 아닙니다. 처음 등록한 품목은 실사 수량부터 입력하세요.</p>
- <details id="mi-settings"><summary>품목 설정 · 엑셀 일괄 입력</summary><div class="toolbar"><button class="btn primary" id="mi-add">+ 품목 등록</button><button class="btn secondary" id="mi-download">재고 체크리스트 받기</button><button class="btn secondary" id="mi-upload">실사 엑셀 올리기</button></div><div class="toolbar"><button class="btn secondary" id="mi-receipt-download">입고 엑셀 양식 받기</button><button class="btn secondary" id="mi-receipt-upload">입고 엑셀 올리기</button></div><p class="mini">품목별 설정·레시피 버튼은 이 메뉴를 열었을 때 표에 표시됩니다. 실사 엑셀은 전체 재고를 맞추고, 입고 엑셀은 새로 들어온 수량만 더합니다.</p></details>
- <div class="tablewrap"><table class="table mi-stock-table"><thead><tr><th>품목 / 입고규격</th><th>종류</th><th>보유 재고</th><th>예약 제외 재고</th><th>추가로 만들 수량</th><th>기록</th></tr></thead><tbody id="mi-rows"></tbody></table></div></div>
+ <div class="panel"><div class="toolbar mi-filters"><label class="mi-sr-only" for="mi-search">품목 검색</label><input id="mi-search" placeholder="품목 검색"><label class="mi-sr-only" for="mi-filter">품목 종류</label><select id="mi-filter"><option value="">전체 품목</option>${Object.entries(kinds).map(([v,n])=>`<option value="${v}">${n}</option>`).join('')}</select></div>
+ <div class="tablewrap"><table class="table mi-stock-list"><thead><tr><th>품목</th><th>보유 재고</th></tr></thead><tbody id="mi-rows"></tbody></table></div></div>
  </section>
  <section id="mi-ledger" aria-label="원재료 입출고일지"></section>
  <section id="mi-recipes" aria-label="레시피"></section>
  <section id="mi-plans" aria-label="생산계획"></section>
  <section id="mi-history" aria-label="변경 이력">
  <div class="panel"><h2>최근 변경 이력</h2><div class="tablewrap"><table class="table"><thead><tr><th>일시</th><th>품목</th><th>작업</th><th>입력수량</th><th>사유</th></tr></thead><tbody>${snapshot.events.map(e=>`<tr><td>${safe(new Date(e.created_at).toLocaleString('ko-KR'))}</td><td>${safe(snapshot.items.find(i=>i.id===e.item_id)?.name||e.item_id)}</td><td>${safe(({receive:'입고',set:'실사',reserve:'수동예약',issue:'출고',produce:'생산',stocktake_import:'엑셀 실사',receipt_import:'엑셀 입고'})[e.mode]||e.mode)}</td><td>${(e.mode==='stocktake_import'||e.mode==='receipt_import')?`${(e.changes||[]).length}개 품목`:num(e.qty)}</td><td>${safe(e.reason)}${(e.mode==='stocktake_import'||e.mode==='receipt_import')?`<details><summary>품목별 변경 내역</summary>${(e.changes||[]).map(c=>`<div>${safe(snapshot.items.find(i=>i.id===c.id)?.name||c.id)}: ${num(c.before)} → ${num(c.after)} ${safe(snapshot.items.find(i=>i.id===c.id)?.unit||'')} ${safe(c.note||'')}</div>`).join('')}</details>`:''}</td></tr>`).join('')||'<tr><td colspan="5">아직 변경 이력이 없습니다.</td></tr>'}</tbody></table></div></div></section>
- <details class="mi-notes"><summary>계산 기준과 주의사항</summary><p>이 대장은 주문 승인·출고와 자동 연결되지 않습니다. 예약은 수동 입력입니다.</p><p>추가로 만들 수량은 현재 준비된 반제품·원재료 기준입니다. 완제품 재고나 반제품을 추가 생산할 수량은 포함하지 않습니다. 공유 재료가 있으므로 품목별 가능 수량을 더할 수 없습니다. ‘약’이 붙은 수량은 출고 전에 확인하세요.</p></details></div>`;
- q('mi-download').onclick=()=>downloadStocktake();q('mi-upload').onclick=()=>uploadStocktake();q('mi-receipt-download').onclick=()=>downloadStocktake(true);q('mi-receipt-upload').onclick=()=>uploadStocktake(true);q('mi-refresh').onclick=window.renderMaterialInventory;q('mi-add').onclick=()=>editItem(null);q('mi-filter').value=stockFilter;q('mi-search').value=stockSearch;
+</div>`;
+ q('mi-record').onclick=()=>chooseItem('set',false,true);
+ q('mi-refresh').onclick=()=>{q('mi-more').open=false;moreOpen=false;return window.renderMaterialInventory();};
+ q('mi-add').onclick=()=>{q('mi-more').open=false;editItem(null);};
+ q('mi-filter').value=stockFilter;q('mi-search').value=stockSearch;
  q('mi-filter').onchange=()=>{stockFilter=q('mi-filter').value;drawRows();};
  q('mi-search').oninput=()=>{stockSearch=q('mi-search').value;drawRows();};
- q('mi-settings').open=showSettings;
- q('mi-settings').ontoggle=()=>{if(q('mi-settings').open===showSettings)return;showSettings=q('mi-settings').open;drawRows();};
- q('mi-receive').onclick=()=>chooseItem('receive');
- q('mi-count').onclick=()=>chooseItem('set');
- q('mi-capacity').onclick=()=>{stockFilter='product';stockSearch='';q('mi-filter').value=stockFilter;q('mi-search').value='';switchView('stock');drawRows();q('mi-search').focus();};
- document.querySelectorAll('[data-mi-view]').forEach(b=>b.onclick=()=>switchView(b.dataset.miView));
+ q('mi-more').open=moreOpen;
+ q('mi-more').ontoggle=e=>{moreOpen=e.currentTarget.open;};
+ document.querySelectorAll('[data-mi-view]').forEach(b=>b.onclick=()=>{q('mi-more').open=false;switchView(b.dataset.miView);});
  drawRows();drawPlans();switchView(activeView);
 }
 function switchView(view){
  activeView=view;
- if(view==='ledger'&&!q('mi-ledger-add'))drawLedger();
+ if(view==='ledger'&&!q('mi-ledger-out'))drawLedger();
  if(view==='recipes'&&!q('mi-recipe-list'))drawRecipeSection();
  Object.keys(views).forEach(id=>q('mi-'+id).hidden=id!==view);
- document.querySelectorAll('[data-mi-view]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.miView===view)));
+ document.querySelectorAll('[data-mi-view]').forEach(b=>{b.hidden=b.dataset.miView===view;b.setAttribute('aria-pressed',String(b.dataset.miView===view));});
 }
 const amount=(n,i)=>n==null?'미입력':`${i.estimated?'약 ':''}${num(n)} ${safe(i.unit)}`;
 function drawRows(){
  const search=stockSearch.trim().toLowerCase();
  const items=snapshot.items.filter(i=>i.active!==false&&(!stockFilter||i.kind===stockFilter)&&i.name.toLowerCase().includes(search));
  q('mi-rows').innerHTML=items.map(i=>`<tr>
- <td><b>${safe(i.name)}</b><div class="mini">${safe(i.purchase_unit||'입고단위 미입력')} ${i.purchase_factor==null?'':`→ ${num(i.purchase_factor)} ${safe(i.unit)}`}</div>${i.notes?`<div class="mini">${safe(i.notes)}</div>`:''}</td>
- <td data-label="종류">${safe(kinds[i.kind])}</td><td data-label="보유 재고">${amount(i.qty,i)}</td>
- <td data-label="예약 제외 재고">${amount(i.qty==null?null:i.qty-(i.reserved||0),i)}${i.reserved>0?`<div class="mini">예약 ${num(i.reserved)} ${safe(i.unit)}</div>`:''}</td>
- <td data-label="추가로 만들 수량">${capacityText(i)}</td>
- <td class="mi-row-actions"><button class="btn light" data-action="move" data-id="${safe(i.id)}">재고 기록</button>
- ${showSettings?`<button class="btn light" data-action="edit" data-id="${safe(i.id)}">품목 설정</button> ${i.kind==='raw'?'':`<button class="btn light" data-action="recipe" data-id="${safe(i.id)}">레시피</button>`}`:''}</td></tr>`).join('')||'<tr><td colspan="6">찾는 품목이 없습니다. 품목명이나 종류를 바꿔보세요.</td></tr>';
- q('mi-rows').querySelectorAll('button').forEach(b=>b.onclick=()=>{const i=snapshot.items.find(x=>x.id===b.dataset.id);({edit:editItem,move:moveItem,recipe:editRecipe})[b.dataset.action](i);});
+ <td><button class="mi-name" type="button" data-mi-detail="${safe(i.id)}">${safe(i.name)}</button><div class="mini">${safe(kinds[i.kind])}</div></td>
+ <td class="mi-onhand">${amount(i.qty,i)}</td></tr>`).join('')||'<tr><td colspan="2">찾는 품목이 없습니다.</td></tr>';
+ q('mi-rows').querySelectorAll('[data-mi-detail]').forEach(b=>b.onclick=()=>itemDetails(snapshot.items.find(x=>x.id===b.dataset.miDetail)));
 }
-function chooseItem(mode,kgOnly=false){
+function itemDetails(i){
+ if(!i)return;
+ modal(safe(i.name),`<div class="mi-item-info">
+ <p><b>보유 재고:</b> ${amount(i.qty,i)}</p>
+ ${i.reserved>0?`<p><b>예약 제외 재고:</b> ${amount(i.qty-i.reserved,i)} (예약 ${num(i.reserved)} ${safe(i.unit)})</p>`:''}
+ ${i.kind!=='raw'?`<p><b>추가로 만들 수량:</b> ${capacityText(i)}</p><p class="mini">보유 완제품과 별개입니다. 같은 재료를 쓰는 제품의 수량은 합치지 마세요.</p>`:''}
+ ${i.purchase_factor!=null?`<p><b>입고 규격:</b> 1 ${safe(i.purchase_unit)} → ${num(i.purchase_factor)} ${safe(i.unit)}</p>`:''}
+ ${i.notes?`<p class="mini">${safe(i.notes)}</p>`:''}</div>
+ <div class="toolbar"><button class="btn light" id="mi-detail-edit" type="button">품목 설정</button>${i.kind!=='raw'?'<button class="btn light" id="mi-detail-recipe" type="button">레시피</button>':''}</div>`);
+ q('mi-submit').textContent='이 품목 재고 입력';
+ q('mi-form').onsubmit=e=>{e.preventDefault();moveItem(i);};
+ q('mi-detail-edit').onclick=()=>editItem(i);
+ if(i.kind!=='raw')q('mi-detail-recipe').onclick=()=>editRecipe(i);
+}
+function recordChoices(mode,excel){
+ return `<div class="mi-record-options">
+ <div class="field"><label for="mi-record-mode">무엇을 기록할까요?</label><select id="mi-record-mode"><option value="set" ${mode==='set'?'selected':''}>실사 · 전체 수량 맞추기</option><option value="receive" ${mode==='receive'?'selected':''}>입고 · 받은 수량만 더하기</option></select></div>
+ <div class="field"><label for="mi-record-method">입력 방법</label><select id="mi-record-method"><option value="single" ${!excel?'selected':''}>한 품목 직접 입력</option><option value="excel" ${excel?'selected':''}>여러 품목 엑셀로 입력</option></select></div></div>`;
+}
+function bindRecordChoices(){
+ const change=e=>{
+  const id=e.currentTarget.id,mode=q('mi-record-mode').value;
+  if(q('mi-record-method').value==='excel')uploadStocktake(mode==='receive');
+  else chooseItem(mode,false,true);
+  q(id).focus();
+ };
+ q('mi-record-mode').onchange=change;q('mi-record-method').onchange=change;
+}
+function chooseItem(mode,kgOnly=false,record=false){
  const items=snapshot.items.filter(i=>i.active!==false&&(!kgOnly||isKgRaw(i)));
  const receiving=mode==='receive', issuing=mode==='issue';
- modal(receiving?'입고 기록':issuing?'사용·출고 기록':'실사 수량 입력',`<p>${receiving?'받은 수량만 기존 재고에 더합니다. 처음 기록하는 품목은 실사 수량부터 입력하세요.':issuing?'실제로 사용하거나 내보낸 양만 빼요. 생산 완료에 이미 기록한 재료는 다시 적지 마세요.':'창고에 실제로 있는 전체 수량으로 맞춥니다. 없는 품목은 0을 입력하세요.'}</p><div class="field"><label for="mi-pick-item">품목</label><select id="mi-pick-item" required><option value="">품목을 선택하세요</option>${options(items)}</select></div>`);
+ modal(record?'재고 입력':receiving?'입고 기록':issuing?'사용·출고 기록':'실사 수량 입력',`${record?recordChoices(mode,false):''}<p>${receiving?'받은 수량만 기존 재고에 더합니다. 처음 기록하는 품목은 실사 수량부터 입력하세요.':issuing?'실제로 사용하거나 내보낸 양만 빼요. 생산 완료에 이미 기록한 재료는 다시 적지 마세요.':'창고에 실제로 있는 전체 수량으로 맞춥니다. 없는 품목은 0을 입력하세요.'}</p><div class="field"><label for="mi-pick-item">품목</label><select id="mi-pick-item" required><option value="">품목을 선택하세요</option>${options(items)}</select></div>`);
  q('mi-submit').textContent='수량 입력으로';
  q('mi-submit').disabled=items.length===0;
  if(!items.length)q('mi-error').textContent=kgOnly?'kg로 관리하는 원재료가 없습니다. 품목 설정에서 확인해 주세요.':'먼저 품목 등록을 해 주세요.';
@@ -96,7 +119,8 @@ function chooseItem(mode,kgOnly=false){
   if((receiving||issuing)&&item.qty==null){q('mi-error').textContent='이 품목은 보유 재고가 미입력입니다. 먼저 실사 수량 입력에서 전체 수량을 기록해 주세요.';return;}
   moveItem(item,mode,kgOnly);q('mi-qty').focus();
  };
- q('mi-pick-item').focus();
+ if(record)bindRecordChoices();
+ q(record?'mi-record-mode':'mi-pick-item').focus();
 }
 const eventLabels={receive:'입고',issue:'사용·출고',produce:'생산에 사용',set:'실사',stocktake_import:'엑셀 실사',receipt_import:'엑셀 입고'};
 const eventTime=new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
@@ -115,25 +139,21 @@ function drawLedger(){
   return `<tr><td><b>${safe(item.name)}</b><div class="mini">${safe(eventTime.format(new Date(e.created_at)))}</div></td><td data-label="구분">${eventLabels[e.mode]}</td><td data-label="변동량">${delta==null?'첫 실사':`${delta>0?'+':''}${num(delta)} kg`}</td><td data-label="기록 후 재고">${num(c.after)} kg</td><td data-label="메모">${safe(c.note||e.reason)}</td></tr>`;
  };
  q('mi-ledger').innerHTML=`<div class="panel"><h2>원재료 입출고일지</h2><p>무게로 관리하는 원재료를 kg으로 기록하세요. 예: 500g = 0.5kg.</p>
- <div class="toolbar"><button class="btn primary" id="mi-ledger-add">+ 입고 기록</button><button class="btn secondary" id="mi-ledger-out">사용·출고 기록</button><button class="btn light" id="mi-ledger-count">실사 수량 입력</button></div>
+ <div class="toolbar"><button class="btn secondary" id="mi-ledger-out">원재료 사용·출고 기록</button></div>
  <p class="mini">최초 1회는 실사 수량을 입력하세요. 생산 완료 기록에서 차감된 양은 일지에 자동으로 표시되므로 중복 입력하지 마세요.</p></div>
  <div class="panel"><h2>제품별 출고 가능 수량</h2><p>바로 보낼 수 있는 완제품과, 원재료·반제품으로 더 만든 뒤 보낼 수 있는 수량을 구분했어요.</p>
  <div class="tablewrap"><table class="table mi-stock-table"><thead><tr><th>제품</th><th>지금 출고할 완제품</th><th>생산 후 추가로 출고할 수량</th></tr></thead><tbody>${productRows||'<tr><td colspan="3">등록된 제품이 없습니다.</td></tr>'}</tbody></table></div>
  <p class="mini">확정된 레시피와 입력된 재고로 계산하며 부족한 반제품은 추가 생산하는 기준입니다. 수동 예약은 제외되지만 주문과는 자동 연동되지 않습니다. 같은 재료를 쓰는 제품의 수량은 더하지 마세요.</p></div>
  <div class="panel"><details><summary>현재 원재료 재고 (kg)</summary><div class="tablewrap"><table class="table mi-stock-table"><thead><tr><th>품목</th><th>남은 원재료</th><th>예약 제외 재고</th></tr></thead><tbody>${stockRows||'<tr><td colspan="3">등록된 kg 원재료가 없습니다.</td></tr>'}</tbody></table></div></details></div>
  <div class="panel"><h2>최근 기록</h2><p class="mini">한국 시간 기준. 전체 변경 이력 최신 100건 중 kg 원재료의 수량 변경만 표시합니다.</p><div class="tablewrap"><table class="table mi-stock-table"><thead><tr><th>품목 / 기록 시각</th><th>구분</th><th>변동량</th><th>기록 후 재고</th><th>메모</th></tr></thead><tbody>${journal.map(line).join('')||'<tr><td colspan="5">최근 kg 원재료 기록이 없습니다.</td></tr>'}</tbody></table></div></div>`;
- q('mi-ledger-add').onclick=()=>chooseItem('receive',true);
  q('mi-ledger-out').onclick=()=>chooseItem('issue',true);
- q('mi-ledger-count').onclick=()=>chooseItem('set',true);
 }
 function drawRecipeSection(){
  q('mi-recipes').innerHTML=`<div class="panel"><h2>레시피 관리</h2>
  <p>먼저 필요한 품목을 등록한 다음 제품이나 반제품에 재료를 연결하세요. 원재료에는 레시피를 붙이지 않습니다.</p>
- <div class="toolbar" id="mi-recipe-create">${Object.entries(kinds).map(([kind,label])=>`<button class="btn ${kind==='product'?'primary':'secondary'}" data-mi-add-kind="${kind}">+ ${label} 등록</button>`).join('')}</div>
  <p class="mini">확정된 레시피만 생산 가능 수량에 사용됩니다. 배합 수량이 없으면 확인 중으로 남겨 두세요. 이 메뉴는 재고 관리용이며 판매 상품은 상품관리에서 별도로 등록합니다.</p>
  <div class="toolbar mi-filters"><label for="mi-recipe-search">품목 찾기</label><input id="mi-recipe-search" placeholder="예: 도넛, 생과자반죽" value="${safe(recipeSearch)}"><label for="mi-recipe-kind">종류</label><select id="mi-recipe-kind">${Object.entries(kinds).map(([k,l])=>`<option value="${k}" ${recipeKind===k?'selected':''}>${l}</option>`).join('')}</select></div>
  <div id="mi-recipe-list"></div></div>`;
- q('mi-recipe-create').querySelectorAll('button').forEach(b=>b.onclick=()=>editItem(null,b.dataset.miAddKind));
  q('mi-recipe-kind').onchange=()=>{recipeKind=q('mi-recipe-kind').value;recipeOpen=null;drawRecipeList();};
  q('mi-recipe-search').oninput=()=>{recipeSearch=q('mi-recipe-search').value;drawRecipeList();};
  drawRecipeList();
@@ -241,7 +261,9 @@ async function downloadStocktake(receipt=false){
  try{if(typeof XLSX==='undefined')throw Error('엑셀 도구를 불러오지 못했습니다. 새로고침하세요.');const r=await db.from('stock2_items').select('*').order('name');if(r.error)throw r.error;if((r.data||[]).length>=1000)throw Error('품목 조회 한도에 도달했습니다. 누락 방지를 위해 다운로드를 중단합니다.');XLSX.writeFile((receipt?InventoryReceiveExcel:InventoryExcel).workbook(r.data||[],XLSX),`${receipt?'입고일괄입력':'재고체크리스트'}_${todayKorea()}.xlsx`);}catch(e){toast(e.message||String(e));}
 }
 function uploadStocktake(receipt=false){
- modal(receipt?'엑셀 입고 업로드':'엑셀 실재고 업로드',(receipt?'<p>현재 재고에 이번 입고량만 더합니다. 거래처에서 들어온 품목만 입력하고 공란은 그대로 둡니다. 직접 만든 제품은 생산 완료로 기록하세요.</p>':'<p>실재고는 보유 총수량으로 대체합니다. 공란은 미변경, 0은 재고 0입니다. 기존 주문·기존 출고 재고는 변경하지 않습니다.</p>')+'<input id="mi-file" type="file" accept=".xlsx"><div id="mi-preview"></div>');
+ modal('재고 입력',recordChoices(receipt?'receive':'set',true)+`<p>${receipt?'새로 들어온 수량만 기존 재고에 더합니다. 직접 만든 품목은 생산 완료로 기록하세요.':'창고에서 센 총수량으로 맞춥니다. 빈칸은 그대로 두고, 실제로 없다면 0을 입력하세요.'}</p>
+ <div class="mi-file-steps"><button class="btn light" id="mi-file-download" type="button">1. 최신 양식 받기</button><div class="field"><label for="mi-file">2. 작성한 엑셀 선택</label><input id="mi-file" type="file" accept=".xlsx"></div></div><div id="mi-preview"></div>`);
+ bindRecordChoices();q('mi-file-download').onclick=()=>downloadStocktake(receipt);
  const form=q('mi-form'),button=q('mi-submit');button.disabled=true;button.textContent='미리보기 확인 후 저장';let changes=null,reading=0;
  q('mi-file').onchange=async()=>{const token=++reading;changes=null;button.disabled=true;q('mi-preview').innerHTML='';q('mi-error').textContent='';try{
  const file=q('mi-file').files[0];if(!file)return;if(!/\.xlsx$/i.test(file.name)||file.size>5*1024*1024)throw Error('5MB 이하의 .xlsx 파일을 선택하세요.');
@@ -251,6 +273,7 @@ function uploadStocktake(receipt=false){
  q('mi-preview').innerHTML=`<h3>${changes.length}개 품목 변경 예정</h3><p>공란 품목은 변경하지 않습니다. 아래 수량과 단위를 확인하세요.</p><div class="tablewrap"><table class="table"><thead><tr><th>품목</th><th>현재</th>${receipt?'<th>입고 (환산)</th>':''}<th>변경 후</th><th>메모</th></tr></thead><tbody>${changes.map(c=>`<tr><td>${safe(c.name)}</td><td>${num(c.before)} ${safe(c.unit)}</td>${receipt?`<td>${num(c.entry_qty)} ${safe(c.entry_unit)}${c.entry_unit!==c.unit?` → ${num(c.qty)} ${safe(c.unit)}`:''}</td>`:''}<td>${num(receipt?c.after:c.qty)} ${safe(c.unit)}</td><td>${safe(c.note)}</td></tr>`).join('')}</tbody></table></div>`;button.disabled=false;
  }catch(e){if(token===reading&&q('mi-form')===form)q('mi-error').textContent=e.message||String(e);}};
  bindSave(async requestId=>{if(!changes)throw Error('파일 검증이 필요합니다.');if(!confirm(`${changes.length}개 품목${receipt?'의 입고량을 현재 재고에 더할까요?':'을 미리보기의 실재고로 변경할까요? 입고 추가가 아닌 총수량 대체입니다.'}`))throw Error('저장을 취소했습니다.');q('mi-file').disabled=true;
+ for(const id of ['mi-record-mode','mi-record-method','mi-file-download'])q(id).disabled=true;
  await rpc(receipt?'stock2_import_receipts':'stock2_import_stocktake',{p_request:requestId,p_rows:changes.map(({id,unit,version,qty,note,entry_unit,entry_qty})=>receipt?{id,version,note,entry_unit,entry_qty}:{id,unit,version,qty,note})});});
 }
 
