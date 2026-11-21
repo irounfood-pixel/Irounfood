@@ -121,3 +121,9 @@
  .mi-record-options{grid-template-columns:1fr}
  .mi-stock-list .mi-name{min-height:44px}
 }
+
+.mi-method{border:0;padding:0;margin:0;min-width:0}
+.mi-method legend{margin:0 0 .25rem;font-weight:600}
+.mi-method label{display:flex;align-items:center;gap:.45rem;min-height:44px;padding:.3rem .5rem;margin:0 0 .25rem;border:1px solid var(--line);border-radius:.5rem;cursor:pointer}
+.mi-method input[type=radio]{width:auto;flex:none;margin:0;accent-color:#254971}
+.mi-method label:has(input:checked){background:#eef4fa;border-color:#8eacca}
