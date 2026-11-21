@@ -94,16 +94,19 @@ function itemDetails(i){
 function recordChoices(mode,excel){
  return `<div class="mi-record-options">
  <div class="field"><label for="mi-record-mode">무엇을 기록할까요?</label><select id="mi-record-mode"><option value="set" ${mode==='set'?'selected':''}>실사 · 전체 수량 맞추기</option><option value="receive" ${mode==='receive'?'selected':''}>입고 · 받은 수량만 더하기</option></select></div>
- <div class="field"><label for="mi-record-method">입력 방법</label><select id="mi-record-method"><option value="single" ${!excel?'selected':''}>한 품목 직접 입력</option><option value="excel" ${excel?'selected':''}>여러 품목 엑셀로 입력</option></select></div></div>`;
+ <fieldset class="mi-method"><legend>입력 방법</legend>
+ <label for="mi-method-single"><input type="radio" name="mi-record-method" id="mi-method-single" value="single" ${!excel?'checked':''}> 한 품목 직접 입력</label>
+ <label for="mi-method-excel"><input type="radio" name="mi-record-method" id="mi-method-excel" value="excel" ${excel?'checked':''}> 여러 품목 엑셀로 입력</label>
+ </fieldset></div>`;
 }
 function bindRecordChoices(){
  const change=e=>{
   const id=e.currentTarget.id,mode=q('mi-record-mode').value;
-  if(q('mi-record-method').value==='excel')uploadStocktake(mode==='receive');
+  if(q('mi-method-excel').checked)uploadStocktake(mode==='receive');
   else chooseItem(mode,false,true);
   q(id).focus();
  };
- q('mi-record-mode').onchange=change;q('mi-record-method').onchange=change;
+ for(const id of ['mi-record-mode','mi-method-single','mi-method-excel'])q(id).onchange=change;
 }
 function chooseItem(mode,kgOnly=false,record=false){
  const items=snapshot.items.filter(i=>i.active!==false&&(!kgOnly||isKgRaw(i)));
@@ -273,7 +276,7 @@ function uploadStocktake(receipt=false){
  q('mi-preview').innerHTML=`<h3>${changes.length}개 품목 변경 예정</h3><p>공란 품목은 변경하지 않습니다. 아래 수량과 단위를 확인하세요.</p><div class="tablewrap"><table class="table"><thead><tr><th>품목</th><th>현재</th>${receipt?'<th>입고 (환산)</th>':''}<th>변경 후</th><th>메모</th></tr></thead><tbody>${changes.map(c=>`<tr><td>${safe(c.name)}</td><td>${num(c.before)} ${safe(c.unit)}</td>${receipt?`<td>${num(c.entry_qty)} ${safe(c.entry_unit)}${c.entry_unit!==c.unit?` → ${num(c.qty)} ${safe(c.unit)}`:''}</td>`:''}<td>${num(receipt?c.after:c.qty)} ${safe(c.unit)}</td><td>${safe(c.note)}</td></tr>`).join('')}</tbody></table></div>`;button.disabled=false;
  }catch(e){if(token===reading&&q('mi-form')===form)q('mi-error').textContent=e.message||String(e);}};
  bindSave(async requestId=>{if(!changes)throw Error('파일 검증이 필요합니다.');if(!confirm(`${changes.length}개 품목${receipt?'의 입고량을 현재 재고에 더할까요?':'을 미리보기의 실재고로 변경할까요? 입고 추가가 아닌 총수량 대체입니다.'}`))throw Error('저장을 취소했습니다.');q('mi-file').disabled=true;
- for(const id of ['mi-record-mode','mi-record-method','mi-file-download'])q(id).disabled=true;
+ for(const id of ['mi-record-mode','mi-method-single','mi-method-excel','mi-file-download'])q(id).disabled=true;
  await rpc(receipt?'stock2_import_receipts':'stock2_import_stocktake',{p_request:requestId,p_rows:changes.map(({id,unit,version,qty,note,entry_unit,entry_qty})=>receipt?{id,version,note,entry_unit,entry_qty}:{id,unit,version,qty,note})});});
 }
 
