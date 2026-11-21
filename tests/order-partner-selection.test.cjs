@@ -1,5 +1,5 @@
 const fs=require('fs'),vm=require('vm'),assert=require('node:assert/strict');
-const html=fs.readFileSync('admin.html','utf8');
+const html=require('./read-admin.cjs')();
 const elements=new Map(),el=id=>{if(!elements.has(id))elements.set(id,{value:'',innerHTML:'',textContent:'',isConnected:true,classList:{add(){},remove(){}},addEventListener(){},appendChild(){}});return elements.get(id);};
 const calls=[],rows=[{dataset:{itemId:'1'},querySelector:s=>({value:s.includes('product')?'product-id':'2'})}];
 const db={rpc:async(name,args)=>{calls.push({name,args});return {data:'order-id'};},auth:{getSession:async()=>({data:{session:null}}),onAuthStateChange(){}}};

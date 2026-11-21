@@ -1,5 +1,5 @@
 const fs=require('fs'),vm=require('vm'),assert=require('node:assert/strict');
-const html=fs.readFileSync(process.argv[2]||'admin.html','utf8');
+const html=require('./read-admin.cjs')(process.argv[2]||'admin.html');
 const scripts=[...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)].map(m=>m[1]).filter(Boolean);
 scripts.forEach(s=>new vm.Script(s));
 const elements=new Map();const el=id=>{if(!elements.has(id))elements.set(id,{innerHTML:'',textContent:'',value:'',isConnected:true,classList:{add(){},remove(){}},addEventListener(){},querySelectorAll(){return []}});return elements.get(id)};

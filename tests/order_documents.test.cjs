@@ -4,7 +4,7 @@ const fs=require('node:fs');
 const vm=require('node:vm');
 const path=require('node:path');
 const script=fs.readFileSync(path.join(__dirname,'../scripts/order_documents.js'),'utf8');
-const admin=fs.readFileSync(path.join(__dirname,'../admin.html'),'utf8');
+const admin=require('./read-admin.cjs')();
 const sandbox={IrounOrderMaterials:require('../scripts/order_materials.js'),window:{},state:{orders:[],products:[]},localStorage:{getItem:()=>null,setItem:()=>{}}};
 vm.runInNewContext(script,sandbox,{filename:'order_documents.js',timeout:2000});
 const {calculateRows,renderDocument}=sandbox.window.IrounOrderDocuments;

@@ -1,2 +1,5 @@
 /.preview/
 /.openai/hosting.json
+
+/node_modules/
+/qa/

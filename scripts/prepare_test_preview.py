@@ -1,9 +1,19 @@
 """Build a local administrator preview pinned to the named test project only."""
 from pathlib import Path
 import json
+import re
 
 root = Path(__file__).resolve().parents[1]
 source = (root / "admin.html").read_text(encoding="utf-8")
+# Inline local assets so the preview is self-contained and cannot load production config.
+def inline_script(match):
+    relative = match.group(1).split("?")[0]
+    if relative.startswith(("https://", "http://")):
+        return match.group(0)
+    return "<script>" + (root / relative).read_text(encoding="utf-8") + "</script>"
+source = re.sub(r'<script src="([^"]+)"[^>]*></script>', inline_script, source)
+source = re.sub(r'<link rel="stylesheet" href="([^"]+)">',
+                lambda m: "<style>" + (root / m.group(1).split("?")[0]).read_text(encoding="utf-8") + "</style>", source)
 production_url = "https://iqopdxrnkmpdivzndkxq.supabase.co"
 production_key = "sb_publishable_8jMegFjVcyhp1SIRZHosAQ_fVoxo8Nr"
 test_url = "https://bgswafqssdmktnmyyqef.supabase.co"
