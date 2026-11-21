@@ -14,7 +14,7 @@ let priced=docs.calculateRows([{name:'식빵카나페',quantity:30,unitPrice:470
 assert.equal(priced.total,141000);assert(priced.rows[0].materialsHtml.includes('토마토 60개'));
 fs.mkdirSync('qa',{recursive:true});
 for(const type of ['transaction','delivery']) fs.writeFileSync('qa/'+type+'.html',docs.renderDocument({...priced,type,orderNo:'TEST',seller:{name:'테스트'},buyer:{name:'검증'},note:'테스트 출력'}));
-const html=fs.readFileSync('admin.html','utf8');
+const html=require('./read-admin.cjs')();
 const part=html.slice(html.indexOf('function calendarStatementsHtml('),html.indexOf('function printCalendarStatements('));
 Object.assign(context,{esc:v=>String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;'),fmt:v=>Number(v).toLocaleString('ko-KR')});
 vm.runInContext(part,context);
