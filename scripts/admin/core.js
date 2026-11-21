@@ -2,7 +2,7 @@ const SUPABASE_URL='https://iqopdxrnkmpdivzndkxq.supabase.co';
 const SUPABASE_KEY='sb_publishable_8jMegFjVcyhp1SIRZHosAQ_fVoxo8Nr';
 const {createClient}=supabase; const db=createClient(SUPABASE_URL,SUPABASE_KEY);
 let state={page:'dashboard',orders:[],products:[],items:[],requests:[],movements:[],loading:false,errors:[]};
-const menus=[['requests','1 · 주문승인'],['calendar','2 · 발송캘린더'],['orders','3 · 주문현황'],['parcel','송장·포장박스'],['mlparcel','ML 송장·포장박스'],['prep','월별 준비량'],['shipped','출고완료'],['inventory','기존 재고관리'],['materials','원재료·반제품·제품'],['products','상품관리'],['settings','설정']];
+const menus=[['requests','1 · 주문승인'],['calendar','2 · 발송캘린더'],['orders','3 · 주문현황'],['parcel','송장·포장박스'],['mlparcel','ML 송장·포장박스'],['prep','월별 준비량'],['shipped','출고완료'],['inventory','기존 재고관리'],['materials','재고 관리 (재료·제품)'],['products','상품관리'],['settings','설정']];
 const $=id=>document.getElementById(id);
 function esc(v){return String(v??'').replace(/[&<>'"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[m]));}
 function toast(msg){$('toast').textContent=msg;$('toast').classList.remove('hidden');clearTimeout(window.__t);window.__t=setTimeout(()=>$('toast').classList.add('hidden'),2600)}
